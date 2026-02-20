@@ -39,12 +39,16 @@ class ReioTheory(classy):
             z_re = params_values_dict.get("reio_z_re")
             delta_z = params_values_dict.get("reio_delta_z")
             
-            # Controllo di sicurezza: se per qualche motivo non sono campionati (es. fissi o dimenticati)
+            # Check if parameters are provided, otherwise raise an error (since they are essential for the tanh model)
             if z_re is None or delta_z is None:
                 raise ValueError("ReioTheory (tanh): Parameters 'reio_z_re' and 'reio_delta_z' must be provided in the 'params' block.")
                 
             xe_class = tanh_model(z_class, z_re, delta_z)
            
+        # Save history in state for likelihoods to access
+        state['reio_history_z'] = z_class
+        state['reio_history_xe'] = xe_class
+
         str_z = ','.join([f'{z:.4g}' for z in z_class])
         str_xe = ','.join([f'{xe:.4g}' for xe in xe_class])
 

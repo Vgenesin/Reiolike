@@ -1,2 +1,0 @@
-#        weight    minuslogpost              H0        tau_reio   minuslogprior minuslogprior__0            chi2 chi2__coreconlike.CoreconLikelihood
-              1             inf            67.5           0.054     -0.22314355      -0.22314355             inf                                 inf

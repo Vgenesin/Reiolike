@@ -33,10 +33,7 @@ def tanh_model(z, z_re, delta_z):
     xe_min = 2e-4 # Residual ionization from recombination
     
     # Tanh formula
-    # Note: We use (z_re - z) so that for z < z_re (late times), the argument is positive, tanh->1, xe->xe_max
-    # For z > z_re (early times), argument is negative, tanh->-1, xe->xe_min
     
-    # xe = (xe_max - xe_min)/2 * (1 + np.tanh((z_re - z) / delta_z)) + xe_min
     xe = 1.08 * np.tanh((z_re-z) / delta_z) / 2.0 + 1.08 / 2.0
     # Ensure physical bounds
     xe = np.clip(xe, 0, xe_max)
@@ -46,14 +43,14 @@ def tanh_model(z, z_re, delta_z):
 
 
 
-def custom_xe_tanh(z, z_re=8.5, Delta_z=2.5):
-    """
-    Storia di reionizzazione con tanh standard
-    Parameters:
-    - z: array di redshift in ingresso 
-    - z_re: redshift centrale della reionizzazione, questo lo vario
-    - Delta_z: larghezza della transizione, ma questa la fisso 
-    """
-    # Normalizzazione per avere xe ~ 1.08 dopo la reionizzazione (include He)
-    xe = 1.08 * np.tanh((z_re-z) / Delta_z) / 2.0 + 1.08 / 2.0
-    return xe
+# def custom_xe_tanh(z, z_re=8.5, Delta_z=2.5):
+#     """
+#     Storia di reionizzazione con tanh standard
+#     Parameters:
+#     - z: array di redshift in ingresso 
+#     - z_re: redshift centrale della reionizzazione, questo lo vario
+#     - Delta_z: larghezza della transizione, ma questa la fisso 
+#     """
+#     # Normalizzazione per avere xe ~ 1.08 dopo la reionizzazione (include He)
+#     xe = 1.08 * np.tanh((z_re-z) / Delta_z) / 2.0 + 1.08 / 2.0
+#     return xe
