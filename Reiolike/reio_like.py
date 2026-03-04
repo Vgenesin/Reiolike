@@ -8,39 +8,39 @@ from cobaya.likelihood import Likelihood
 
 class ReioLike(Likelihood):
     """
-    This likelihood compares the neutral hydrogen fraction obtained by a certain reionization history xe(z) 
+    This likelihood compares the neutral hydrogen fraction
+    obtained by a certain reionization history xe(z)
     calculated by the theory (ReioTheory) with astrophysical data.
-    
-    It uses the 'corecon' package to compute likelihoods for different astrophysical analyses.
-    
+
+    It uses the 'corecon' package to compute likelihoods
+    for different astrophysical analyses.
+
     Assumption:
-    - The theory (ReioTheory) calculates xe(z) on a redshift grid and saves it in the state as 'reio_history_z' and 'reio_history_xe'.
+    - The theory (ReioTheory) calculates xe(z) on a redshift grid.
     - The theory provides the arrays 'z' and 'xe'.
     """
-    
-    # This is the path to the corecon configuration file, which specifies which analyses to run and with which datasets.
-    corecon_config_file: str = "corecon_config.yaml" 
-    
+
+    # This is the path to the corecon configuration file,
+    # which specifies which analyses to run and with which datasets.
+    corecon_config_file: str = "corecon_config.yaml"
+
     def initialize(self):
         """
         Initializes the Corecon analyses specified in the configuration file.
         """
         print(f"ReioLike initialized. Reading corecon config from: {self.corecon_config_file}")
-        
+
         # Read the corecon configuration file to determine which analyses to run
         with open(self.corecon_config_file, 'r') as f:
             self.config = yaml.safe_load(f)
             print(f"Loaded corecon config: {self.config}") # Debug print to check config loading and seeing what is in the config file.
-            
-        
-        self.analyses = []
-        
+
+        self.analyses = [] 
         # Mapping between YAML key (observable) and Corecon module/class (to be defined)
         # For now, we assume that 'HII_fraction' maps to something that handles x_HI
         
         for observable_type, datasets in self.config.items():
             print(f"Found observable type: {observable_type}") #checking which observable types we have in the config file, for example 'HII_fraction'.
-            
             # Mapping YAML observable types to corecon keys.
             corecon_key = observable_type
             if observable_type == 'HII_fraction': 
@@ -103,11 +103,11 @@ class ReioLike(Likelihood):
 
     def get_requirements(self):
         """
-        Defines the quantities that must be calculated by the theory.
-        In this case we explicitly ask for 'reio_xe' and 'reio_z'.
-        So the common underlying history of reionization is common among cmb power spectrum and astrophysical constraints.
+        In this case we explicitly ask for 'tau_reio' to ensure ReioTheory runs.
+        We will access the full history arrays directly from the provider.
         """
-        return {'reio_history_z': None, 'reio_history_xe': None}
+        # Request a standard scalar derived parameter to force initialization/calculation order
+        return {'tau_reio': None}
 
     def compute_gaussian_loglike(self, analysis_dict, z_model, model_values, integration_width=None): #I can call thisfunction and set the integration_width at the beginning.
         """
@@ -174,13 +174,15 @@ class ReioLike(Likelihood):
                         val_integral, _ = quad(f_interp, z_min, z_max)
                         avg_value = val_integral / (z_max - z_min)
                         model_at_corecon.append(avg_value)
-                        used_integration = True # It is important to set this flag to True only if the integration was successful, so that we know whether we can trust the integrated value or if we need to fall back to pointwise interpolation.
+                        used_integration = True # It is important to set this flag to True only if the integration was successful,
+                                                # so that we know whether we can trust the integrated value or if we need to fall back to pointwise interpolation.
                     except Exception as e:
                         print(f"Integration failed at z={z}: {e}")
                         used_integration = False
-            
-            #what happens if w=0 and thus we do not enter the integration block? In this case, we will just take the pointwise value at z, which is what we want.
-            if not used_integration: #if we did not use integration, either because the width was 0 or because the integration failed, we fall back to pointwise interpolation at z.
+            #  What happens if w=0 and thus we do not enter the integration block?
+            #  In this case, we will just take the pointwise value at z.
+            if not used_integration: # if we did not use integration, either because the width was 0 or because the integration failed,
+                                     # we fall back to pointwise interpolation at z.
                 # Pointwise interpolation
                 val = f_interp(z)
                 print(f"Pointwise interpolation at z={z}: {val}") # Debug print to check the interpolated value at this redshift.
@@ -211,48 +213,37 @@ class ReioLike(Likelihood):
         """
         Calculate the log-likelihood.
         """
-        # 1. Retrieve the reionization history calculated by the theory (ReioTheory)
-        #    This is the starting point: xe(z) and z to "work" with.
-        xe = self.provider.get_result('reio_history_xe')
-        z = self.provider.get_result('reio_history_z')
+        try:
+             # This is accessing private attributes of Cobaya.
+             theory_provider = self.provider.requirement_providers['tau_reio'] 
+             # theory_provider should be the ReioTheory instance (or wrapper).
+             z, xe = theory_provider.get_reio_history()
+        except (AttributeError, KeyError):
+             print("DEBUG: Could not access ReioTheory via provider!")
+             raise RuntimeError("ReioLike failed to access ReioTheory. Ensure 'tau_reio' is a requirement.")
         
-        # Calculate neutral hydrogen fraction (x_HI)
-        # Assume standard Y_He if not passed otherwise
+        # Calculate hydrogen fraction (x_HI)
+        # Assume standard Y_He 
         Y_He = 0.24 
         # fHe = n_He/n_H
         fHe = Y_He / (1 - Y_He) * (1.008 / 4.003)  # ≈ 0.079
-        
-        # xe_theory = x_HII + fHe*x_HeII + ... 
-        # Assuming hydrogen and singly ionized helium reionization proceed together:
-        # xe ≈ x_HII * (1 + fHe)
-        # Therefore x_HII = xe / (1+fHe)
-        x_HII = xe / (1 + fHe)
-        # x_H_neutral = 1 - x_HII
-        
-        # Ensure it's between 0 and 1 (for numerical stability)
-        # x_H_neutral = np.clip(x_H_neutral, 0, 1)
 
-        # 2. Here we "work" on xe(z) or x_H_neutral.
-        
-        # 3. Comparison with Corecon analyses
+        # Assuming hydrogen and singly ionized helium reionization proceed together:
+
+        x_HII = xe / (1 + fHe)
+        # x_H_neutral = 1 - x_HII # Neutral hydrogen fraction.
+
         log_prob = 0.0
         
-        # For now: iterate over the configured analyses
+        # Iterate over the configured analyses
         if hasattr(self, 'analyses'):
              for analysis in self.analyses:
                 # Each analysis is a dictionary with the data (saved in initialize)
-                # We calculate the likelihood by comparing the theory's x_H_neutral with the data
-                
-                # If the analysis is of type 'HII_fraction' (x_HII), we need to compare
-                # with the IONIZED fraction (x_HII = 1 - x_HI).
-                # If it's x_HI, we use x_H_neutral.
                 
                 model_to_compare = None
-                if analysis['type'] == 'HII_fraction': # So we are comparing with x_HII, which is the ionized fraction, so we use x_HII from the theory.
+                if analysis['type'] == 'HII_fraction': # So we are comparing with x_HII.
                     model_to_compare = x_HII
-                # else: 
-                #     # Default or other types, assume comparison with x_HI for now
-                #     model_to_compare = x_H_neutral
+
 
                 log_L = self.compute_gaussian_loglike(
                     analysis_dict=analysis, 
@@ -264,7 +255,7 @@ class ReioLike(Likelihood):
                 if np.isfinite(log_L):
                     log_prob += log_L
                 else:
-                    # Numerical error handling (optional: strong penalty)
+                    # Numerical error handling 
                     return -np.inf
             
         return log_prob
