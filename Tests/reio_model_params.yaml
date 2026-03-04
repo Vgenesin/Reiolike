@@ -1,0 +1,8 @@
+reio_model:
+  type: tanh_model
+  z_min: 0.0
+  z_max: 30.0
+  z_points: 200
+  params:
+    z_re: 8.0
+    delta_z: 0.8
