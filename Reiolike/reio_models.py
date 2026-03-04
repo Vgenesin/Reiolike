@@ -24,10 +24,7 @@ def tanh_model(z, z_re, delta_z):
     # Helium fraction (consistent with BBN/CLASS standard)
     # Note: CLASS handles helium reionization separately usually (at z~3.5)
     # Here we model Hydrogen reionization + first Helium ionization.
-    # f_He_mass = Y_p
-    # For simplicity, we assume full ionization at low z: xe_max ~ 1 + n_He/n_H
-    # If Y_p ~ 0.245, n_He/n_H ~ Y_p / (4*(1-Y_p)) ~ 0.08
-    # So xe_max ~ 1.08
+
     
     xe_max = 1.08 
     xe_min = 2e-4 # Residual ionization from recombination
@@ -40,17 +37,3 @@ def tanh_model(z, z_re, delta_z):
     
     return xe
 
-
-
-
-# def custom_xe_tanh(z, z_re=8.5, Delta_z=2.5):
-#     """
-#     Storia di reionizzazione con tanh standard
-#     Parameters:
-#     - z: array di redshift in ingresso 
-#     - z_re: redshift centrale della reionizzazione, questo lo vario
-#     - Delta_z: larghezza della transizione, ma questa la fisso 
-#     """
-#     # Normalizzazione per avere xe ~ 1.08 dopo la reionizzazione (include He)
-#     xe = 1.08 * np.tanh((z_re-z) / Delta_z) / 2.0 + 1.08 / 2.0
-#     return xe
