@@ -3,6 +3,10 @@ from cobaya.theories.classy import classy # We will extend this to create our Re
 import numpy as np
 from .reio_models import tanh_model #this is the function that computes xe(z) for the tanh model, we will use it in ReioTheory
 
+# Module-level shared storage: updated by ReioTheory.calculate(), read by ReioLike.logp().
+# cobaya guarantees calculate() runs before logp() for each sample, so this is always current.
+_shared_reio_history = {'z': None, 'xe': None}
+
 class ReioTheory(classy):
     """
     Una classe Theory che estende CLASS per gestire storie di reionizzazione custom.
@@ -93,12 +97,11 @@ class ReioTheory(classy):
         # Enforce boundary condition: last point is exactly 0
         xe_class[-1] = 0.0
 
-        # Save history in state for likelihoods to access
-        state['reio_history_z'] = self.z_class
-        state['reio_history_xe'] = xe_class
-        
-        # Store in instance variable for direct access
+        # Store history for direct access by ReioLike
         self._current_reio_history = (self.z_class, xe_class)
+        # Update module-level shared storage so ReioLike.logp() can read it
+        _shared_reio_history['z'] = self.z_class
+        _shared_reio_history['xe'] = xe_class
 
         # Construct strings for CLASS
         # We upped _ARGUMENT_LENGTH_MAX_ to 4096 in parser.h, so we can use sufficient precision

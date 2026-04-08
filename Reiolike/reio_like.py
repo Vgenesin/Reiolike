@@ -1,4 +1,5 @@
 # from cobaya.likelihood import DataSetLikelihood
+import re
 import numpy as np
 import yaml
 from scipy.interpolate import interp1d
@@ -25,6 +26,7 @@ class ReioLike(Likelihood):
     corecon_config_file: str = "corecon_config.yaml"
 
     def initialize(self):
+
         """
         Initializes the Corecon analyses specified in the configuration file.
         """
@@ -41,12 +43,18 @@ class ReioLike(Likelihood):
         
         for observable_type, datasets in self.config.items():
             print(f"Found observable type: {observable_type}") #checking which observable types we have in the config file, for example 'HII_fraction'.
+
+            # --- Point 2: skip entirely if the dataset list is empty ---
+            # This avoids an unnecessary call to con.get() when the user has left
+            # a section in the YAML but without any dataset names (e.g. upper_limit_HII_fraction: []).
+            if not datasets:
+                print(f"  - No datasets listed for '{observable_type}', skipping.")
+                continue
+
             # Mapping YAML observable types to corecon keys.
             corecon_key = observable_type
-            if observable_type == 'HII_fraction': 
-                corecon_key = 'x_HII'  # This is the key we expect to find in corecon for this type of analysis.
-                                       # We assume that corecon has a dataset for 'x_HII' which contains the relevant analyses for the ionized fraction. 
-                                       # If we had other types of observables, we would map them to their respective corecon keys here.
+            if observable_type in ('HII_fraction', 'upper_limit_HII_fraction', 'lower_limit_HII_fraction'):
+                corecon_key = 'x_HII'
 
             #At this level we want everything we could get from corecon with this key.
             try:
@@ -56,31 +64,146 @@ class ReioLike(Likelihood):
                 raise RuntimeError(f"CRITICAL ERROR loading corecon data for '{corecon_key}': {e}")
 
             if isinstance(datasets, list):
-                for dataset_name in datasets: # We want to loop over the datasets specified in the config file for this observable type. 
-                                              # For example, if we have 'HII_fraction' with a list of datasets, 
-                                              # we want to loop over them and extract the data from corecon for each dataset.
-                    print(f"  - Initializing analysis for dataset: {dataset_name}")
-                    
-                    if dataset_name in corecon_data_dict: # dataset_name is the key to access the dataset in corecon.
-                        data_obj = corecon_data_dict[dataset_name] # estracting the dataset object from corecon, which should contain axes (z), values (x_HII), and errors.
-                        
+                for dataset_spec in datasets:
+                    # Support "Dataset Name [REALIZATION]" notation for multi-realization datasets
+                    # (e.g. "Durovcikova et al. 2024 [ATON]").
+                    corecon_name, realization = self._parse_dataset_spec(dataset_spec)
+                    print(f"  - Initializing analysis for dataset: {dataset_spec}")
+
+                    if corecon_name in corecon_data_dict:
+                        data_obj = corecon_data_dict[corecon_name]
+
+                        if realization is not None:
+                            # Multi-realization dataset: extract only the requested realization
+                            print(f"    - Multi-realization dataset, extracting realization: '{realization}'")
+                            z_arr, val_arr, err_up_arr, err_z_left, err_z_right = \
+                                self._extract_realization(data_obj, realization)
+                        else:
+                            # Standard dataset: axes is a plain array of redshifts
+                            z_arr      = np.array(data_obj.axes,   dtype=float)
+                            val_arr    = np.array(data_obj.values, dtype=float)
+                            err_up_arr = np.array(data_obj.err_up, dtype=float)
+                            err_z_left  = self._get_error_array(data_obj, 'err_left')
+                            err_z_right = self._get_error_array(data_obj, 'err_right')
+
+                        # --- Sanity checks ---
+                        if len(z_arr) == 0:
+                            raise RuntimeError(
+                                f"Dataset '{dataset_spec}' in corecon '{corecon_key}' has no data points (axes is empty)."
+                            )
+
+                        n_valid = np.sum(np.isfinite(val_arr))
+                        if n_valid == 0:
+                            raise RuntimeError(
+                                f"Dataset '{dataset_spec}' in corecon '{corecon_key}' has no finite values "
+                                f"(all NaN/Inf). Cannot use it in the likelihood."
+                            )
+
+                        if observable_type == 'HII_fraction':
+                            n_valid_err = np.sum(np.isfinite(err_up_arr) & (err_up_arr > 0))
+                            if n_valid_err == 0:
+                                raise RuntimeError(
+                                    f"Dataset '{dataset_spec}' in corecon '{corecon_key}' has no finite positive "
+                                    f"error bars (err_up). Cannot use it in a Gaussian likelihood."
+                                )
+                            print(f"    - Dataset '{dataset_spec}': DETECTION "
+                                  f"({len(z_arr)} points, {n_valid} finite values, {n_valid_err} finite positive errors).")
+                        elif observable_type == 'upper_limit_HII_fraction':
+                            print(f"    - Dataset '{dataset_spec}': UPPER LIMIT "
+                                  f"({len(z_arr)} points, values interpreted as 95% CL upper bounds).")
+                        elif observable_type == 'lower_limit_HII_fraction':
+                            print(f"    - Dataset '{dataset_spec}': LOWER LIMIT "
+                                  f"({len(z_arr)} points, values interpreted as 95% CL lower bounds).")
+
                         self.analyses.append({
-                            'type': observable_type, # what kind of astrohysical constraint we are asking from corecon (for example, HII_fraction, x_HI, etc.)
-                            'name': dataset_name, # the name of the analysis/dataset we are using (for example, "Umeda et al. 2023 (subm.)")
-                            'z': np.array(data_obj.axes, dtype=float), # redshift of the points in the dataset
-                            'values': np.array(data_obj.values, dtype=float), # values for the astrophysical observable (for example, x_HII) at the redshifts given by 'z'
-                            'errors': np.array(data_obj.err_up, dtype=float), # error bars for the observable, we take err_up as a proxy for symmetric errors, but this can be improved later to handle asymmetric errors if needed.
-                            # Safe handling of err_left and err_right for integration
-                            'err_z_left': self._get_error_array(data_obj, 'err_left'), # error bar on the left in redshift, if available, otherwise None
-                            'err_z_right': self._get_error_array(data_obj, 'err_right') # error bar on the right in redshift, if available, otherwise None
+                            'type': observable_type,
+                            'name': dataset_spec,  # use full spec (with [REALIZATION]) as label
+                            'z': z_arr,
+                            'values': val_arr,
+                            'errors': err_up_arr,
+                            'err_z_left': err_z_left,
+                            'err_z_right': err_z_right,
                         })
                     else:
-                        print(f"    - WARNING: Dataset '{dataset_name}' not found in corecon '{corecon_key}'")
-                        raise RuntimeError(f"CRITICAL ERROR loading corecon data for '{corecon_key}': Dataset '{dataset_name}' not found")
+                        print(f"    - WARNING: Dataset '{corecon_name}' not found in corecon '{corecon_key}'")
+                        raise RuntimeError(f"CRITICAL ERROR loading corecon data for '{corecon_key}': Dataset '{corecon_name}' not found")
 
             else:
                  print(f"  - WARNING: Expected list for {observable_type}, got {type(datasets)}")
                     
+    @staticmethod
+    def _parse_dataset_spec(dataset_spec):
+        """
+        Parse a dataset specification string, optionally extracting a realization.
+
+        Supported formats:
+          "Dataset Name"               -> (corecon_name="Dataset Name", realization=None)
+          "Dataset Name [REALIZATION]" -> (corecon_name="Dataset Name", realization="REALIZATION")
+
+        Example:
+          "Durovcikova et al. 2024 [ATON]" -> ("Durovcikova et al. 2024", "ATON")
+        """
+        match = re.match(r'^(.+?)\s*\[([^\]]+)\]\s*$', dataset_spec)
+        if match:
+            return match.group(1).strip(), match.group(2).strip()
+        return dataset_spec, None
+
+    @staticmethod
+    def _extract_realization(data_obj, realization):
+        """
+        Extract data for a single realization from a multi-realization corecon dataset.
+
+        In datasets like 'Durovcikova et al. 2024', each entry in data_obj.axes
+        is a tuple (redshift, realization_name) instead of a plain redshift.
+        This method filters to the requested realization and returns flat arrays.
+
+        Returns: z_arr, val_arr, err_up_arr, err_z_left, err_z_right
+        """
+        z_list, val_list, err_up_list, err_left_list, err_right_list = [], [], [], [], []
+
+        # Check whether err_left/err_right exist and are indexable
+        has_err_left  = hasattr(data_obj, 'err_left')  and data_obj.err_left  is not None
+        has_err_right = hasattr(data_obj, 'err_right') and data_obj.err_right is not None
+
+        available = set()
+        for i, entry in enumerate(data_obj.axes):
+            z, real_name = entry[0], entry[1]
+            available.add(real_name)
+            if real_name == realization:
+                z_list.append(float(z))
+                val_list.append(data_obj.values[i])
+                err_up_list.append(data_obj.err_up[i])
+                if has_err_left:
+                    try:
+                        el = data_obj.err_left[i]
+                        err_left_list.append(el[0] if hasattr(el, '__len__') else float(el))
+                    except Exception:
+                        err_left_list.append(0.0)
+                else:
+                    err_left_list.append(0.0)
+                if has_err_right:
+                    try:
+                        er = data_obj.err_right[i]
+                        err_right_list.append(er[0] if hasattr(er, '__len__') else float(er))
+                    except Exception:
+                        err_right_list.append(0.0)
+                else:
+                    err_right_list.append(0.0)
+
+        if not z_list:
+            raise RuntimeError(
+                f"Realization '{realization}' not found in dataset. "
+                f"Available realizations: {sorted(available)}"
+            )
+
+        return (
+            np.array(z_list,      dtype=float),
+            np.array(val_list,    dtype=float),
+            np.array(err_up_list, dtype=float),
+            np.nan_to_num(np.array(err_left_list,  dtype=float), nan=0.0),
+            np.nan_to_num(np.array(err_right_list, dtype=float), nan=0.0),
+        )
+
     def _get_error_array(self, data_obj, attr_name):
         """Helper to safely extract error arrays from corecon objects"""
         try:
@@ -103,10 +226,9 @@ class ReioLike(Likelihood):
 
     def get_requirements(self):
         """
-        In this case we explicitly ask for 'tau_reio' to ensure ReioTheory runs.
-        We will access the full history arrays directly from the provider.
+        Request tau_reio to ensure ReioTheory.calculate() runs before logp().
+        The reio history is read from the shared module-level variable in reio_theory.
         """
-        # Request a standard scalar derived parameter to force initialization/calculation order
         return {'tau_reio': None}
 
     def compute_gaussian_loglike(self, analysis_dict, z_model, model_values, integration_width=None): #I can call thisfunction and set the integration_width at the beginning.
@@ -209,18 +331,130 @@ class ReioLike(Likelihood):
         chi_squared = np.sum(((model_at_corecon[mask_valid] - corecon_values[mask_valid]) / corecon_errors[mask_valid]) ** 2)
         return -0.5 * chi_squared
 
+    def compute_upper_limit_loglike(self, analysis_dict, z_model, model_values):
+        """
+        Log-likelihood for non-detections quoted as one-sided 95% CL upper limits.
+
+        The dataset 'values' are interpreted as 95% CL upper bounds g_i on the
+        observable.  We model the measurement noise as a half-Gaussian centred at
+        zero:
+
+            sigma_i = g_i / 1.645          (one-sided 95% CL)
+            logL_i  = -0.5 * (x_th_i / sigma_i)^2   if x_th_i > 0
+                    =  0                              if x_th_i <= 0  (model is
+                                                      already inside the limit)
+
+        Args:
+            analysis_dict : dict built in initialize() for an
+                            'upper_limit_HII_fraction' analysis.
+            z_model       : 1-D redshift array from the theory provider.
+            model_values  : 1-D array of the corresponding theoretical
+                            observable (e.g. x_HII) on z_model.
+
+        Returns:
+            float : total log-likelihood summed over valid data points.
+        """
+        upper_limits = analysis_dict['values']   # 95% CL upper bounds from corecon
+        z_data       = analysis_dict['z']        # redshifts of the upper-limit points
+
+        # Make sure z_model is increasing for interp1d
+        if z_model[0] > z_model[-1]:
+            z_model      = z_model[::-1]
+            model_values = model_values[::-1]
+
+        f_interp = interp1d(z_model, model_values, kind='cubic', fill_value='extrapolate')
+        x_theory_at_data = np.asarray(f_interp(z_data), dtype=float)
+
+        # Only use points where the upper limit itself is finite and positive
+        mask_valid = np.isfinite(upper_limits) & (upper_limits > 0) & np.isfinite(x_theory_at_data)
+
+        if np.sum(mask_valid) == 0:
+            print(f"DEBUG: No valid upper-limit points found for analysis '{analysis_dict['name']}'.")
+            return -np.inf
+
+        g      = upper_limits[mask_valid]
+        x_th   = x_theory_at_data[mask_valid]
+        sigma  = g / 1.645  # convert 95% CL upper limit to Gaussian sigma
+
+        # Half-Gaussian: penalise only when the theory exceeds the limit
+        log_l = np.where(x_th > 0, -0.5 * (x_th / sigma) ** 2, 0.0)
+
+        return float(np.sum(log_l))
+
+    def compute_lower_limit_loglike(self, analysis_dict, z_model, model_values):
+        """
+        Log-likelihood for detections quoted as one-sided 95% CL lower limits.
+
+        Specular analogy to compute_upper_limit_loglike:
+
+          Upper limit g (95% CL):
+              Gaussian centred at 0, g sits at 1.645*sigma from the centre.
+              sigma = g / 1.645
+              logL  = -0.5 * (x_th / sigma)^2       if x_th > 0
+                    =  0                             if x_th <= 0
+
+          Lower limit g (95% CL):
+              Gaussian centred at the physical maximum (x_HII = 1), g sits at
+              1.645*sigma from the centre on the left tail.
+              sigma = (1 - g) / 1.645
+              logL  = -0.5 * ((x_th - 1) / sigma)^2   if x_th < 1  (always true)
+                    =  0                                if x_th >= 1
+
+          In practice the half-Gaussian penalises only when the theory falls
+          below the lower limit:
+              logL  = -0.5 * ((x_th - 1) / sigma)^2   if x_th < g
+                    =  0                                if x_th >= g
+
+        Args:
+            analysis_dict : dict built in initialize() for a
+                            'lower_limit_HII_fraction' analysis.
+            z_model       : 1-D redshift array from the theory provider.
+            model_values  : 1-D array of the corresponding theoretical
+                            observable (e.g. x_HII) on z_model.
+
+        Returns:
+            float : total log-likelihood summed over valid data points.
+        """
+        lower_limits = analysis_dict['values']   # 95% CL lower bounds from corecon
+        z_data       = analysis_dict['z']        # redshifts of the lower-limit points
+
+        # Make sure z_model is increasing for interp1d
+        if z_model[0] > z_model[-1]:
+            z_model      = z_model[::-1]
+            model_values = model_values[::-1]
+
+        f_interp = interp1d(z_model, model_values, kind='cubic', fill_value='extrapolate')
+        x_theory_at_data = np.asarray(f_interp(z_data), dtype=float)
+
+        # Only use points where the lower limit itself is finite and in (0, 1)
+        mask_valid = np.isfinite(lower_limits) & (lower_limits > 0) & (lower_limits < 1) & np.isfinite(x_theory_at_data)
+
+        if np.sum(mask_valid) == 0:
+            print(f"DEBUG: No valid lower-limit points found for analysis '{analysis_dict['name']}'.")
+            return -np.inf
+
+        g     = lower_limits[mask_valid]
+        x_th  = x_theory_at_data[mask_valid]
+        sigma = (1.0 - g) / 1.645  # distance from lower limit to physical maximum (x_HII=1)
+
+        # Half-Gaussian: penalise only when the theory falls below the limit
+        log_l = np.where(x_th < g, -0.5 * ((x_th - 1.0) / sigma) ** 2, 0.0)
+
+        return float(np.sum(log_l))
+
     def logp(self, **params_values):
         """
         Calculate the log-likelihood.
         """
-        try:
-             # This is accessing private attributes of Cobaya.
-             theory_provider = self.provider.requirement_providers['tau_reio'] 
-             # theory_provider should be the ReioTheory instance (or wrapper).
-             z, xe = theory_provider.get_reio_history()
-        except (AttributeError, KeyError):
-             print("DEBUG: Could not access ReioTheory via provider!")
-             raise RuntimeError("ReioLike failed to access ReioTheory. Ensure 'tau_reio' is a requirement.")
+        # Access the reionization history via the shared module-level variable.
+        # cobaya guarantees ReioTheory.calculate() runs before logp(), so
+        # _shared_reio_history is always populated when we get here.
+        from Reiolike.reio_theory import _shared_reio_history
+        z  = _shared_reio_history['z']
+        xe = _shared_reio_history['xe']
+        if z is None or xe is None:
+            print("[ReioLike] ERROR: reio_history not available — ReioTheory.calculate() may not have run.")
+            return -np.inf
         
         # Calculate hydrogen fraction (x_HI)
         # Assume standard Y_He 
@@ -241,17 +475,30 @@ class ReioLike(Likelihood):
                 # Each analysis is a dictionary with the data (saved in initialize)
                 
                 model_to_compare = None
-                if analysis['type'] == 'HII_fraction': # So we are comparing with x_HII.
+                if analysis['type'] in ('HII_fraction', 'upper_limit_HII_fraction', 'lower_limit_HII_fraction'):
                     model_to_compare = x_HII
 
-
-                log_L = self.compute_gaussian_loglike(
-                    analysis_dict=analysis, 
-                    z_model=z, 
-                    model_values=model_to_compare,
-                    integration_width=None # Use errors on z from the dataset
-                )
+                if analysis['type'] == 'upper_limit_HII_fraction':
+                    log_L = self.compute_upper_limit_loglike(
+                        analysis_dict=analysis,
+                        z_model=z,
+                        model_values=model_to_compare,
+                    )
+                elif analysis['type'] == 'lower_limit_HII_fraction':
+                    log_L = self.compute_lower_limit_loglike(
+                        analysis_dict=analysis,
+                        z_model=z,
+                        model_values=model_to_compare,
+                    )
+                else:
+                    log_L = self.compute_gaussian_loglike(
+                        analysis_dict=analysis,
+                        z_model=z,
+                        model_values=model_to_compare,
+                        integration_width=None  # Use errors on z from the dataset
+                    )
                 
+                print(f"  [{analysis['type']}] '{analysis['name']}':  logL = {log_L:.6f}")
                 if np.isfinite(log_L):
                     log_prob += log_L
                 else:
@@ -259,3 +506,4 @@ class ReioLike(Likelihood):
                     return -np.inf
             
         return log_prob
+
