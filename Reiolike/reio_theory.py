@@ -124,6 +124,12 @@ class ReioTheory(classy):
         if 'reio_delta_z' in params_values_dict:
             del params_values_dict['reio_delta_z']
 
+        # Convert numpy scalar types to Python native types for CLASS compatibility
+        for k in list(params_values_dict.keys()):
+            v = params_values_dict[k]
+            if hasattr(v, 'item'):
+                params_values_dict[k] = v.item()
+
         return super().calculate(state, want_derived, **params_values_dict)
            
 
