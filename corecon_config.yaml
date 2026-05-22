@@ -1,5 +1,28 @@
+# Detections: likelihood gaussiana
 HII_fraction:
-  # - Bolton et al. 2011
-  # - Tilvi et al. 2014]]
-  # - Umeda et al. 2023 (subm.)
+  - Umeda et al. 2025 [LF]
+  - Umeda et al. 2026
+  - Durovcikova et al. 2024 [CROC]
+  - Wold et al. 2022 [McQuinn et al. (2007)]
+  - Whitler et al. 2020 [no]
+  - Totani et al. 2014 [variable_dz]
+  - Greig et al. 2022
   - Jung et al. 2020
+  - Kageura et al. 2025
+
+
+# Upper limits (non-detection): half-Gaussian centrata a 0, sigma = values / 1.645
+upper_limit_HII_fraction:
+  - Mason et al. 2019 [0.68]
+
+# Lower limits: half-Gaussian ribaltata, penalizza se x_th < values
+lower_limit_HII_fraction:
+  - Totani et al. 2006 #bounds are at 1sigma (??)
+  - Davies et al. 2026 [threshold] #bounds are at 1sigma.
+  - Zhu et al. 2022 #bounds are at 1sigma.
+  - Fausey et al. 2024 [free, McQuinn et al. 2008] #pay attention that this is at three sigmas
+
+# Datasets misti (detections + lower/upper limits nello stesso oggetto corecon)
+# Ogni punto viene instradato automaticamente in base ai flag lower_lim/upper_lim di corecon
+mixed_HII_fraction:
+  - Bolan et al. 2022 #bounds are at 1sigma.
