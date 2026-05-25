@@ -124,11 +124,16 @@ class ReioTheory(classy):
         if 'reio_delta_z' in params_values_dict:
             del params_values_dict['reio_delta_z']
 
-        # Convert numpy scalar types to Python native types for CLASS compatibility
+        # Convert numpy scalar types (even in lists/tuples) to Python native types for CLASS compatibility (robust recursive)
+        def _to_native(val):
+            if hasattr(val, "item"):
+                return val.item()
+            if isinstance(val, (list, tuple)):
+                return type(val)(_to_native(v) for v in val)
+            return val
+
         for k in list(params_values_dict.keys()):
-            v = params_values_dict[k]
-            if hasattr(v, 'item'):
-                params_values_dict[k] = v.item()
+            params_values_dict[k] = _to_native(params_values_dict[k])
 
         return super().calculate(state, want_derived, **params_values_dict)
            
