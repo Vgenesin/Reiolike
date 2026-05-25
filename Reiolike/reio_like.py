@@ -25,14 +25,6 @@ class ReioLike(Likelihood):
     # which specifies which analyses to run and with which datasets.
     corecon_config_file: str = "corecon_config.yaml"
 
-    # Per-dataset n_sigma for one-sided limit likelihoods.
-    # Default is 1.0 (1-sigma, 68% CL) — most datasets in this config quote
-    # limits at 1-sigma. Override here for datasets that use a different CL.
-    _LIMIT_N_SIGMA: dict = {
-        "Fausey et al. 2024": 3.0,    # explicitly 3-sigma lower limits
-        # Mason et al. 2019: using [0.68] label in YAML → 1-sigma (default 1.0)
-    }
-
     def initialize(self):
 
         """
@@ -96,18 +88,15 @@ class ReioLike(Likelihood):
                             # Multi-realization or multi-type dataset: extract only the rows matching label
                             label_str = ", ".join(label)
                             print(f"    - Multi-label dataset, extracting label: '[{label_str}]'")
-                            z_arr, val_arr, err_up_arr, err_down_arr, err_z_left, err_z_right, lower_lim_arr, upper_lim_arr = \
+                            z_arr, val_arr, err_up_arr, err_z_left, err_z_right, lower_lim_arr, upper_lim_arr = \
                                 self._extract_realization(data_obj, label)
                         else:
                             # Standard dataset: axes is a plain array of redshifts
-                            z_arr         = np.array(data_obj.axes,   dtype=float)
-                            val_arr       = np.array(data_obj.values, dtype=float)
-                            err_up_arr    = np.array(data_obj.err_up, dtype=float)
-                            err_down_arr  = self._get_error_array(data_obj, "err_down")
-                            if err_down_arr is None:
-                                err_down_arr = err_up_arr.copy()  # fallback: simmetrico
-                            err_z_left    = self._get_error_array(data_obj, "err_left")
-                            err_z_right   = self._get_error_array(data_obj, "err_right")
+                            z_arr       = np.array(data_obj.axes,   dtype=float)
+                            val_arr     = np.array(data_obj.values, dtype=float)
+                            err_up_arr  = np.array(data_obj.err_up, dtype=float)
+                            err_z_left  = self._get_error_array(data_obj, "err_left")
+                            err_z_right = self._get_error_array(data_obj, "err_right")
                             lower_lim_arr = np.array(data_obj.lower_lim, dtype=bool) \
                                 if hasattr(data_obj, "lower_lim") and data_obj.lower_lim is not None \
                                 else np.zeros(len(z_arr), dtype=bool)
@@ -158,17 +147,12 @@ class ReioLike(Likelihood):
                                 )
                             print(f"    - Dataset '{dataset_spec}': DETECTION "
                                   f"({len(z_arr)} points, {n_valid} finite values, {n_valid_err} finite positive errors).")
-                            limit_n_sigma = 1.645  # not used for Gaussian, but kept for consistency
                         elif observable_type == "upper_limit_HII_fraction":
-                            limit_n_sigma = self._LIMIT_N_SIGMA.get(corecon_name, 1.645)
                             print(f"    - Dataset '{dataset_spec}': UPPER LIMIT "
-                                  f"({len(z_arr)} points, {limit_n_sigma:.3g}-sigma upper bounds).")
+                                  f"({len(z_arr)} points, values interpreted as 95% CL upper bounds).")
                         elif observable_type == "lower_limit_HII_fraction":
-                            limit_n_sigma = self._LIMIT_N_SIGMA.get(corecon_name, 1.645)
                             print(f"    - Dataset '{dataset_spec}': LOWER LIMIT "
-                                  f"({len(z_arr)} points, {limit_n_sigma:.3g}-sigma lower bounds).")
-                        else:
-                            limit_n_sigma = 1.645
+                                  f"({len(z_arr)} points, values interpreted as 95% CL lower bounds).")
 
                         self.analyses.append({
                             "type": observable_type,
@@ -176,12 +160,10 @@ class ReioLike(Likelihood):
                             "z": z_arr,
                             "values": val_arr,
                             "errors": err_up_arr,
-                            "errors_down": err_down_arr,
                             "err_z_left": err_z_left,
                             "err_z_right": err_z_right,
                             "lower_lim": lower_lim_arr,
                             "upper_lim": upper_lim_arr,
-                            "limit_n_sigma": limit_n_sigma,
                         })
                     else:
                         print(f"    - WARNING: Dataset '{corecon_name}' not found in corecon '{corecon_key}'")
@@ -253,7 +235,8 @@ class ReioLike(Likelihood):
         if label is not None and len(label) == info["n_labels"]:
             return
 
-        # Collect available combinations from axes
+        # Collect all available label combinations from the axes to help the user
+        # understand which explicit labels are required in the YAML for disambiguation.
         available = []
         for entry in getattr(data_obj, "axes", []):
             if hasattr(entry, "__len__") and len(entry) > info["n_labels"]:
@@ -278,14 +261,13 @@ class ReioLike(Likelihood):
         This method filters to the requested label (realization name or type like
         'threshold', 'mixture', 'negative') and returns flat arrays.
 
-        Returns: z_arr, val_arr, err_up_arr, err_down_arr, err_z_left, err_z_right, lower_lim_arr, upper_lim_arr
+        Returns: z_arr, val_arr, err_up_arr, err_z_left, err_z_right, lower_lim_arr, upper_lim_arr
         """
-        z_list, val_list, err_up_list, err_down_list, err_left_list, err_right_list = [], [], [], [], [], []
+        z_list, val_list, err_up_list, err_left_list, err_right_list = [], [], [], [], []
         lower_lim_list, upper_lim_list = [], []
 
         has_err_left  = hasattr(data_obj, "err_left")  and data_obj.err_left  is not None
         has_err_right = hasattr(data_obj, "err_right") and data_obj.err_right is not None
-        has_err_down  = hasattr(data_obj, "err_down")  and data_obj.err_down  is not None
         has_lower_lim = hasattr(data_obj, "lower_lim") and data_obj.lower_lim is not None
         has_upper_lim = hasattr(data_obj, "upper_lim") and data_obj.upper_lim is not None
 
@@ -303,7 +285,6 @@ class ReioLike(Likelihood):
                 z_list.append(float(z))
                 val_list.append(data_obj.values[i])
                 err_up_list.append(data_obj.err_up[i])
-                err_down_list.append(data_obj.err_down[i] if has_err_down else data_obj.err_up[i])
                 if has_err_left:
                     try:
                         el = data_obj.err_left[i]
@@ -331,10 +312,9 @@ class ReioLike(Likelihood):
             )
 
         return (
-            np.array(z_list,        dtype=float),
-            np.array(val_list,      dtype=float),
-            np.array(err_up_list,   dtype=float),
-            np.nan_to_num(np.array(err_down_list,  dtype=float), nan=0.0),
+            np.array(z_list,       dtype=float),
+            np.array(val_list,     dtype=float),
+            np.array(err_up_list,  dtype=float),
             np.nan_to_num(np.array(err_left_list,  dtype=float), nan=0.0),
             np.nan_to_num(np.array(err_right_list, dtype=float), nan=0.0),
             np.array(lower_lim_list, dtype=bool),
@@ -468,23 +448,12 @@ class ReioLike(Likelihood):
     def compute_gaussian_loglike(self, analysis_dict, z_model, model_values, integration_width=None):
         """
         Gaussian likelihood comparing model values with observed values and errors from corecon.
-
-        The effective sigma is the arithmetic mean of err_up and err_down:
-            sigma_eff = (err_up + err_down) / 2
-        If err_down is missing, falls back to err_up only (symmetric case).
         """
         corecon_values = analysis_dict["values"]
-        err_up         = analysis_dict["errors"]
-        err_down       = analysis_dict.get("errors_down", None)
+        corecon_errors = analysis_dict["errors"]
         z_corecon      = analysis_dict["z"]
         err_left       = analysis_dict["err_z_left"]
         err_right      = analysis_dict["err_z_right"]
-
-        # Arithmetic mean of err_up and err_down; fall back to err_up if err_down missing
-        if err_down is not None:
-            corecon_errors = (err_up + err_down) / 2.0
-        else:
-            corecon_errors = err_up
 
         if integration_width is None:
             w_left  = err_left  if err_left  is not None else np.zeros_like(z_corecon)
@@ -591,10 +560,9 @@ class ReioLike(Likelihood):
             print(f"DEBUG: No valid upper-limit points found for analysis '{analysis_dict['name']}'.")
             return -np.inf
 
-        n_sigma = analysis_dict.get("limit_n_sigma", 1.0)
         g     = upper_limits[mask_valid]
         x_th  = x_theory_at_data[mask_valid]
-        sigma = g / n_sigma
+        sigma = g / 1.645
 
         log_l = np.where(x_th > 0, -0.5 * (x_th / sigma) ** 2, 0.0)
         return float(np.sum(log_l))
@@ -629,10 +597,9 @@ class ReioLike(Likelihood):
             print(f"DEBUG: No valid lower-limit points found for analysis '{analysis_dict['name']}'.")
             return -np.inf
 
-        n_sigma = analysis_dict.get("limit_n_sigma", 1.0)
         g     = lower_limits[mask_valid]
         x_th  = x_theory_at_data[mask_valid]
-        sigma = (1.0 - g) / n_sigma
+        sigma = (1.0 - g) / 1.645
 
         log_l = np.where(x_th < g, -0.5 * ((x_th - 1.0) / sigma) ** 2, 0.0)
         return float(np.sum(log_l))
@@ -669,15 +636,13 @@ class ReioLike(Likelihood):
                 # Lower limit: penalise if x_th < g
                 if g <= 0 or g >= 1:
                     continue
-                n_sig = analysis_dict.get("limit_n_sigma", 1.0)
-                sigma = (1.0 - g) / n_sig
+                sigma = (1.0 - g) / 1.645
                 log_total += float(np.where(x_th < g, -0.5 * ((x_th - 1.0) / sigma) ** 2, 0.0))
             elif upper_lim[i]:
                 # Upper limit: penalise if x_th > 0
                 if g <= 0:
                     continue
-                n_sig = analysis_dict.get("limit_n_sigma", 1.0)
-                sigma = g / n_sig
+                sigma = g / 1.645
                 log_total += float(np.where(x_th > 0, -0.5 * (x_th / sigma) ** 2, 0.0))
             else:
                 # Detection: Gaussian
