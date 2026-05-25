@@ -62,6 +62,17 @@ class ReioTheory(classy):
             which CLASS can use to compute derived parameters like tau_reio."""
         return super().get_can_provide()
 
+    def _to_native(self, val):
+        """Recursively convert numpy types to Python native types."""
+        import numpy as np
+        if hasattr(val, "item"):
+            return val.item()
+        if isinstance(val, dict):
+            return {k: self._to_native(v) for k, v in val.items()}
+        if isinstance(val, (list, tuple)):
+            return type(val)(self._to_native(v) for v in val)
+        return val
+
     def calculate(self, state, want_derived=True, **params_values_dict):
         """
         This is the main method where we compute xe(z) and pass it to CLASS.
@@ -124,7 +135,9 @@ class ReioTheory(classy):
         if 'reio_delta_z' in params_values_dict:
             del params_values_dict['reio_delta_z']
 
-        return super().calculate(state, want_derived, **params_values_dict)
+        # Convert all params to native types before passing to CLASS
+        native_params = self._to_native(params_values_dict)
+        return super().calculate(state, want_derived, **native_params)
            
 
     def get_reio_history(self):
