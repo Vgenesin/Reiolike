@@ -1,0 +1,88 @@
+# Questo file YAML permette di testare la likelihood ReioLike usando Cobaya,
+# passando per la theory custom (ReioTheory) e interpolando il modello tanh.
+
+debug: True
+force: True
+
+params:
+  # Sampling per z_re (punto medio della reionizzazione)
+  reio_z_re:
+    prior:
+      min: 5.0
+      max: 12.0
+    ref: 6.0
+    proposal: 0.2
+    latex: z_\mathrm{re}
+    
+  # Sampling per delta_z (ampiezza/larghezza della funzione tanh)
+  reio_delta_z:
+    prior:
+      min: 0.1
+      max: 3.0
+    ref: 2.0
+    proposal: 0.1
+    latex: \Delta z
+
+  # Ampiezza e indice spettrale (nomi CLASS)
+  A_s:
+    prior:
+      min: 1.5e-9
+      max: 3.5e-9
+    ref: 2.0989e-9
+    proposal: 2e-11
+    latex: A_s
+  n_s: 0.9651           # Indice spettrale (nome CLASS, fissato)
+
+  # Parametri cosmologici fissati ai valori Planck 2018
+  # Usiamo i nomi nativi di CLASS per evitare problemi di traduzione
+  omega_b: 0.02237      # Densità barionica (nome CLASS)
+  omega_cdm: 0.1201     # Densità materia oscura (nome CLASS)
+  H0: 67.32             # Costante di Hubble [km/s/Mpc]
+  N_ur: 2.0328          # Neutrini ultra-relativistici (massless)
+
+  # Parametri derivati richiesti da ELICA (commentati perché ELiCA è disabilitata)
+  # Y_p:
+  #   derived: true
+  # omega_de:
+  #   derived: true
+  # DH:
+  #   derived: true
+
+theory:
+  # Qui richiamiamo la tua classe Python custom.
+  # Assicurati di lanciare Cobaya dalla cartella che contiene la cartella 'Reiolike'
+  Reiolike.ReioTheory:
+    # Seleziona come storia la tanh (descritta in reio_models.py)
+    reio_model: tanh
+    # Imposta z_min, z_max e il numero di step sulla griglia
+    z_min: 0.0
+    z_max: 30.0
+    z_points: 250
+    extra_args:
+      N_ncdm: 1
+      m_ncdm: 0.06
+      T_ncdm: 0.71611
+    # debug: True  # Opzione per stampare informazioni aggiuntive durante il calcolo della teoria
+
+likelihood:
+  # Richiama la tua likelihood astrofisica
+  Reiolike.ReioLike:
+    # Passa in ingresso la configurazione che stai usando (corecon)
+    corecon_config_file: "corecon_config.yaml"
+
+  # # Likelihood ELiCA (commentata per diagnostica)
+  # elica.likelihood.hybridHL:
+  #   python_path: /Users/valentinagenesini/Documents/thesis/ELICA/
+
+
+  # # Likelihood di ELiCA (caricata direttamente dal path esterno)
+  # elica.hybridHL:
+  #   path: /Users/valentinagenesini/Documents/thesis/ELICA/elica
+    
+# Debug: Se vuoi solo testare un punto fisso, usa questo invece di mcmc:
+sampler:
+  mcmc:
+    max_samples: 2      # solo per testare che parta, aumenta per un run vero
+    burn_in: 0
+
+output: chains/test_local/run
