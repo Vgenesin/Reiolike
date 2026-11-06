@@ -1,15 +1,17 @@
-# Run MCMC per il cluster: storia tanh (z_re, Delta z liberi) + astrofisica di
-# corecon_config.yaml, cosmologia fissata a Planck 2018 (nessun dato CMB).
+# Run MCMC per il cluster: storia tanh (z_re, Delta z) e A_s campionati, piu'
+# l'astrofisica di corecon_config.yaml; resto della cosmologia fissato a
+# Planck 2018 (nessun dato CMB).
 #
 # Differenze rispetto a test_elica_reiolike.yaml:
-#   - A_s FISSO: senza dati CMB non entra nella likelihood (logL identica con
-#     A_s = 2.1e-9 e 3.0e-9), campionarlo aggiungeva solo una dimensione piatta;
 #   - tau_reio DERIVATO, cosi' la catena lo salva;
 #   - debug spento, criterio di convergenza (Gelman-Rubin) invece di max_samples.
+# Senza dati CMB A_s non entra nella likelihood: la sua posteriore sara' il
+# prior piatto. Si campiona per avere la stessa parametrizzazione delle run
+# con la CMB.
 #
 # Si lancia dalla radice del repository (per i percorsi relativi):
-#     cobaya-run run_tanh_cluster.yaml                 # una catena
-#     mpirun -n 4 cobaya-run run_tanh_cluster.yaml     # 4 catene in parallelo
+#     cobaya-run run_tanh_cluster.yaml -r              # una catena
+#     mpirun -n 4 cobaya-run run_tanh_cluster.yaml -r  # 4 catene in parallelo
 
 debug: False
 
@@ -25,8 +27,13 @@ params:
     proposal: 0.1
     latex: \Delta z
 
+  A_s:
+    prior: {min: 1.5e-9, max: 3.5e-9}
+    ref: {dist: norm, loc: 2.0989e-9, scale: 3.0e-11}
+    proposal: 2.0e-11
+    latex: A_s
+
   # cosmologia fissata (Planck 2018), nomi di CLASS
-  A_s: 2.0989e-9
   n_s: 0.9651
   omega_b: 0.02237
   omega_cdm: 0.1201
@@ -59,4 +66,4 @@ sampler:
     max_tries: 10000
     learn_proposal: True
 
-output: chains/tanh/run
+output: chains/tanh_zre_dz_As/tanh_zre_dz_As_corecon
