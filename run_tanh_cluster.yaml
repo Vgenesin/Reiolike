@@ -1,6 +1,6 @@
 # Run MCMC per il cluster: storia tanh (z_re, Delta z) e A_s campionati, piu'
 # l'astrofisica di corecon_config.yaml; resto della cosmologia fissato a
-# Planck 2018 (nessun dato CMB).
+# Pagano et al. 2020, Tab. 3, TTTEEE+lowE-S2 (nessun dato CMB).
 #
 # Differenze rispetto a test_elica_reiolike.yaml:
 #   - tau_reio DERIVATO, cosi' la catena lo salva;
@@ -29,11 +29,12 @@ params:
 
   A_s:
     prior: {min: 1.5e-9, max: 3.5e-9}
-    ref: {dist: norm, loc: 2.0989e-9, scale: 3.0e-11}
+    ref: {dist: norm, loc: 2.120e-9, scale: 3.0e-11}   # Pagano+2020, Tab. 3
     proposal: 2.0e-11
     latex: A_s
 
-  # cosmologia fissata (Planck 2018), nomi di CLASS
+  # cosmologia fissata: Pagano et al. 2020 (arXiv:1908.09856), Tab. 3, ultima
+  # colonna (TTTEEE+lowE-S2, medie 68%), nomi di CLASS
   n_s: 0.9651
   omega_b: 0.02237
   omega_cdm: 0.1201
@@ -66,4 +67,4 @@ sampler:
     max_tries: 10000
     learn_proposal: True
 
-output: chains/tanh_zre_dz_As/tanh_zre_dz_As_corecon
+output: chains/tanh_zre_dz_As/tanh_zre_dz_As_corecon_ELiCA_lowTT_astro
