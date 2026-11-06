@@ -4,7 +4,8 @@ from cobaya.log import LoggedError
 import os
 
 import numpy as np
-from .reio_models import (tanh_model, tanh_pinned_end_model,
+from .reio_models import (tanh_model, tanh_class_model, class_reio_start,
+                          tanh_pinned_end_model,
                           tanh_pinned_end_delta_z, gompertz_sr_model,
                           power_law_model, binned_model, make_bin_edges,
                           bin_edges_from_data,
@@ -249,6 +250,18 @@ class ReioTheory(classy):
     stop_at_error: bool = True
 
     reio_model: str = "tanh"
+    # "tanh"       : tanh lineare in z, x_e = xe_max/2 [1 + tanh((z_re - z)/dz)]
+    # "tanh_class" : la tanh di CLASS reio_camb (e di CAMB/Planck), in
+    #                y = (1+z)^1.5, con x_noreio(z): stessi parametri reio_z_re
+    #                e reio_delta_z, ma e' un altro modello (vedi
+    #                tanh_class_model).  Riproduce reio_camb nativo a 2e-6 su
+    #                tau (Tests/test_tanh_class.py).  Esempio:
+    #                    theory:
+    #                      Reiolike.ReioTheory:
+    #                        reio_model: tanh_class
+    #                    params:
+    #                      reio_z_re:    {prior: {min: 5, max: 12}}
+    #                      reio_delta_z: 0.5        # larghezza di Planck
     # Estremo inferiore della griglia.  CLASS *impone* reio_inter_z[0] == 0
     # (thermodynamics.c:1447), quindi l'unico valore ammesso e' 0: l'opzione
     # resta accettata per compatibilita' con i YAML esistenti.
@@ -362,6 +375,16 @@ class ReioTheory(classy):
     _NON_PER_IL_FONDO = frozenset({
         "zeta_uv", "tau_reio", "z_reio", "sigma8", "A_s", "logA",
         "ln10^{10}A_s", "ln_A_s_1e10"})
+
+    # Modelli che contengono gia' il fondo vero x_noreio(z), come reio_camb di
+    # CLASS: niente pavimento x 1.05, e il calcolo del fondo tabula x_noreio(z)
+    # su [0, z_max] (_calcola_fondo).  Per questi il minimo globale di x_e, e
+    # quindi l'estremo dell'integrale di tau_reio, cade dove lo mette CLASS con
+    # reio_camb, non sull'ultimo nodo.
+    _MODELLI_CON_FONDO = frozenset({"tanh_class"})
+    # Passo della tabella di x_noreio(z): la ricombinazione residua varia del
+    # 10% fra z = 0 e 30, l'interpolazione lineare a passo 0.05 sbaglia ~1e-10.
+    _PASSO_TABELLA_FONDO = 0.05
 
     # --- Gompertz+SR options ------------------------------------------------
     # How to obtain sigma8 for the SR formula:
@@ -1709,7 +1732,9 @@ class ReioTheory(classy):
              producono solo il settore idrogeno + prima ionizzazione
              dell'elio (plateau 1+fHe); questo porta il plateau a 1+2*fHe;
           2. impone un floor pari alla ionizzazione residua: CLASS non
-             accetta xe=0 nei nodi intermedi (divisione per dkappa);
+             accetta xe=0 nei nodi intermedi (divisione per dkappa).  Non
+             per i modelli di _MODELLI_CON_FONDO (tanh_class), che hanno gia'
+             x_e >= x_noreio(z) per costruzione;
           3. azzera l'ultimo nodo, come richiede la convenzione reio_inter
              (CLASS lo sostituisce internamente con xe_before, cioe' il
              valore da ricombinazione: thermodynamics.c:4327).
@@ -1741,7 +1766,12 @@ class ReioTheory(classy):
             )
             xe = xe + self._last_HeII
 
-        xe = np.maximum(xe, pav)
+        # Il pavimento non si applica ai modelli che contengono gia' il fondo
+        # vero, x_noreio(z): li' x_e >= x_noreio per costruzione, e alzare la
+        # coda a 1.05 x x_e(z_max) cambierebbe tau di ~7e-5 rispetto a CLASS
+        # (misurato 6 nov 2026, plateau contato fino al minimo globale di x_e).
+        if self.reio_model not in self._MODELLI_CON_FONDO:
+            xe = np.maximum(xe, pav)
 
         # L'azzeramento dell'ultimo nodo e' legittimo solo se il modello e' gia'
         # tornato alla ionizzazione residua a z_max; altrimenti si sta tagliando
@@ -1781,6 +1811,27 @@ class ReioTheory(classy):
             # la finestra fitta viene dimensionata sul delta_z campionato
             z_grid   = self._build_grid(z_re, delta_z=delta_z)
             xe_class = tanh_model(z_grid, z_re, delta_z, xe_max=xe_max)
+
+        elif self.reio_model == "tanh_class":
+            # ------------------------------------------------------------------
+            # La tanh di CLASS (reio_camb), con la stessa formula, gli stessi
+            # parametri e la stessa x_noreio(z): vedi tanh_class_model.  Stessi
+            # nomi della tanh lineare (reio_z_re, reio_delta_z), ma e' un altro
+            # modello: i due coincidono solo vicino a z_re.
+            # ------------------------------------------------------------------
+            z_re    = native_params.pop("reio_z_re",    None)
+            delta_z = native_params.pop("reio_delta_z", None)
+            if z_re is None or delta_z is None:
+                raise ValueError(
+                    "ReioTheory (tanh_class): 'reio_z_re' e 'reio_delta_z' "
+                    "devono essere nel blocco 'params'."
+                )
+            z_grid  = self._build_grid(z_re, delta_z=delta_z)
+            z_start = class_reio_start(z_re, delta_z, self.reio_z_HeII,
+                                       self.reio_delta_z_HeII)
+            xe_class = tanh_class_model(z_grid, z_re, delta_z,
+                                        x_noreio=self._x_noreio(z_grid),
+                                        xe_max=xe_max, z_start=z_start)
 
         elif self.reio_model == "tanh_pinned_end":
             # ------------------------------------------------------------------
@@ -2245,8 +2296,14 @@ class ReioTheory(classy):
                         self.log, "ReioTheory: il calcolo del fondo di ricombinazione "
                         "non accetta questi parametri: %s" % msg) from e
                 raise
-            return (float(c.ionization_fraction(float(self.z_max))),
-                    float(c.ionization_fraction(float(self.z_max) + 1.0)))
+            fondo = (float(c.ionization_fraction(float(self.z_max))),
+                     float(c.ionization_fraction(float(self.z_max) + 1.0)))
+            if self.reio_model not in self._MODELLI_CON_FONDO:
+                return fondo
+            n = int(np.ceil(float(self.z_max) / self._PASSO_TABELLA_FONDO)) + 1
+            z_tab = np.linspace(0.0, float(self.z_max), n)
+            x_tab = np.array([c.ionization_fraction(float(q)) for q in z_tab])
+            return fondo + ((z_tab, x_tab),)
         finally:
             c.struct_cleanup()
             c.empty()
@@ -2265,9 +2322,28 @@ class ReioTheory(classy):
                 cache.clear()
             cache[chiave] = self._calcola_fondo(args)
             self._fondo_da_verificare = True
-        self._fondo, self._fondo_controllo = cache[chiave]
+        valori = cache[chiave]
+        self._fondo, self._fondo_controllo = valori[0], valori[1]
+        self._tabella_fondo = valori[2] if len(valori) > 2 else None
         self._pavimento = self._arrotonda_per_eccesso(
             self._MARGINE_SUL_FONDO * self._fondo)
+
+    def _x_noreio(self, z):
+        """
+        x_noreio(z) di CLASS (sola ricombinazione) per la cosmologia del punto,
+        interpolata dalla tabella del calcolo del fondo.  Solo per i modelli di
+        _MODELLI_CON_FONDO; altrimenti la tabella non c'e' e ci si ferma.
+        """
+        tab = getattr(self, "_tabella_fondo", None)
+        if tab is None:
+            raise RuntimeError(
+                "ReioTheory._x_noreio: tabella del fondo non calcolata (modello "
+                "%r).  Dentro cobaya la prepara calculate(); fuori da cobaya "
+                "serve imposta_pavimento(cosmologia)." % self.reio_model)
+        z = np.asarray(z, dtype=float)
+        if np.any(z < 0.0) or np.any(z > tab[0][-1] * (1 + 1e-12)):
+            raise ValueError("ReioTheory._x_noreio: z fuori da [0, z_max].")
+        return np.interp(z, tab[0], tab[1])
 
     @staticmethod
     def _arrotonda_per_eccesso(v, cifre=2):

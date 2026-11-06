@@ -107,6 +107,63 @@ def tanh_model(z, z_re, delta_z, xe_max=XE_MAX_HI_HEI):
     return xe
 
 
+# Valori di CLASS per reio_camb (input.c:5781-5784 e precisions.h:235).
+CLASS_REIO_EXPONENT = 1.5        # reionization_exponent
+CLASS_REIO_START_FACTOR = 8.0    # reionization_start_factor
+
+
+def class_reio_start(z_re, delta_z, z_HeII=3.5, delta_z_HeII=0.5,
+                     start_factor=CLASS_REIO_START_FACTOR):
+    """
+    Redshift sopra il quale CLASS (reio_camb) non aggiunge reionizzazione:
+    z_re + start_factor*delta_z, o quello dell'elio se e' piu' alto
+    (thermodynamics.c:1244-1252).
+    """
+    return max(z_re + start_factor * delta_z, z_HeII + start_factor * delta_z_HeII)
+
+
+def tanh_class_model(z, z_re, delta_z, x_noreio, xe_max=XE_MAX_HI_HEI,
+                     z_start=None, exponent=CLASS_REIO_EXPONENT):
+    """
+    La tanh di CLASS, reio_parametrization = reio_camb, scritta come in
+    thermodynamics.c:4167-4196 (settore idrogeno + prima ionizzazione
+    dell'elio; il secondo elio lo aggiunge ReioTheory, identico a CLASS).
+
+    Per z < z_start:
+
+        A    = [(1+z_re)^e - (1+z)^e] / [e (1+z_re)^(e-1)] / delta_z,   e = 1.5
+        x_e  = (xe_max - x_noreio(z)) * (tanh(A) + 1)/2 + x_noreio(z)
+
+    e per z > z_start x_e = x_noreio(z).  La transizione e' una tanh nella
+    variabile y = (1+z)^1.5, non in z: rispetto a tanh_model ha la stessa
+    pendenza in z_re ma e' asimmetrica, e i due modelli hanno lo stesso
+    (z_re, delta_z) solo vicino al punto medio.
+
+    x_noreio(z) e' la ionizzazione della sola ricombinazione: CLASS la aggiorna
+    a ogni z con l'evoluzione senza reionizzazione (thermodynamics.c:4119),
+    quindi NON e' una costante.  Va passata qui gia' calcolata sugli stessi z.
+
+    Parameters
+    ----------
+    z        : array-like, redshift
+    z_re     : float, punto medio (x_e = (xe_max + x_noreio)/2)
+    delta_z  : float, reionization_width di CLASS
+    x_noreio : array-like come z, ionizzazione residua della ricombinazione
+    xe_max   : float, 1 + f_He
+    z_start  : float o None, inizio della reionizzazione; None = come CLASS
+               (class_reio_start con l'elio a 3.5 +/- 0.5)
+    exponent : float, reionization_exponent di CLASS (1.5)
+    """
+    z = np.asarray(z, dtype=float)
+    x_noreio = np.broadcast_to(np.asarray(x_noreio, dtype=float), z.shape)
+    if z_start is None:
+        z_start = class_reio_start(z_re, delta_z)
+    arg = (((1.0 + z_re) ** exponent - (1.0 + z) ** exponent)
+           / (exponent * (1.0 + z_re) ** (exponent - 1.0)) / delta_z)
+    xe = (xe_max - x_noreio) * (np.tanh(arg) + 1.0) / 2.0 + x_noreio
+    return np.where(z > z_start, x_noreio, xe)
+
+
 def tanh_pinned_end_delta_z(z_re, z_end=5.6, xe_end=None, xe_end_frac=0.95,
                             xe_max=XE_MAX_HI_HEI):
     """
