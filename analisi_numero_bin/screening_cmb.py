@@ -20,7 +20,7 @@ Due comandi:
   python analisi_numero_bin/screening_cmb.py analizza
 
 Sul cluster ogni YAML si lancia con lo sbatch accanto:
-  sbatch analisi_numero_bin/cluster/binned_cmb.sbatch C7
+  sbatch analisi_numero_bin/cluster/run_binned_C7.sh
 """
 import glob
 import os
@@ -71,7 +71,7 @@ TESTA = """\
 # bordi: {bordi}
 #
 # Si lancia dalla radice del repository:
-#   sbatch analisi_numero_bin/cluster/binned_cmb.sbatch {nome}
+#   sbatch analisi_numero_bin/cluster/run_binned_{nome}.sh
 # oppure a mano:
 #   mpirun -n 4 cobaya-run analisi_numero_bin/cluster/binned_{nome}.yaml -r
 

@@ -1,0 +1,131 @@
+theory:
+  Reiolike.ReioTheory:
+    reio_model: binned
+    reio_bin_fixed_scheme: true
+    reio_bin_edges:
+    - 5.35
+    - 6.05
+    - 6.45
+    - 6.75
+    - 7.15
+    - 7.45
+    - 8.3
+    - 9.5
+    - 12.0
+    - 25.0
+    z_max: 30.0
+    z_points: 250
+    extra_args:
+      N_ncdm: 1
+      m_ncdm: 0.06
+      T_ncdm: 0.71611
+likelihood:
+  Reiolike.ReioLike:
+    corecon_config_file: corecon_config.yaml
+    print_sigma_table: false
+params:
+  reio_xHII_bin1:
+    prior:
+      min: 0.0
+      max: 1.0
+    ref:
+      dist: uniform
+      min: 0.2
+      max: 0.8
+    proposal: 0.1
+    latex: x_\mathrm{HII}^{(1)}
+  reio_xHII_bin2:
+    prior:
+      min: 0.0
+      max: 1.0
+    ref:
+      dist: uniform
+      min: 0.2
+      max: 0.8
+    proposal: 0.1
+    latex: x_\mathrm{HII}^{(2)}
+  reio_xHII_bin3:
+    prior:
+      min: 0.0
+      max: 1.0
+    ref:
+      dist: uniform
+      min: 0.2
+      max: 0.8
+    proposal: 0.1
+    latex: x_\mathrm{HII}^{(3)}
+  reio_xHII_bin4:
+    prior:
+      min: 0.0
+      max: 1.0
+    ref:
+      dist: uniform
+      min: 0.2
+      max: 0.8
+    proposal: 0.1
+    latex: x_\mathrm{HII}^{(4)}
+  reio_xHII_bin5:
+    prior:
+      min: 0.0
+      max: 1.0
+    ref:
+      dist: uniform
+      min: 0.2
+      max: 0.8
+    proposal: 0.1
+    latex: x_\mathrm{HII}^{(5)}
+  reio_xHII_bin6:
+    prior:
+      min: 0.0
+      max: 1.0
+    ref:
+      dist: uniform
+      min: 0.2
+      max: 0.8
+    proposal: 0.1
+    latex: x_\mathrm{HII}^{(6)}
+  reio_xHII_bin7:
+    prior:
+      min: 0.0
+      max: 1.0
+    ref:
+      dist: uniform
+      min: 0.2
+      max: 0.8
+    proposal: 0.1
+    latex: x_\mathrm{HII}^{(7)}
+  reio_xHII_bin8:
+    prior:
+      min: 0.0
+      max: 1.0
+    ref:
+      dist: uniform
+      min: 0.2
+      max: 0.8
+    proposal: 0.1
+    latex: x_\mathrm{HII}^{(8)}
+  reio_xHII_bin9:
+    prior:
+      min: 0.0
+      max: 1.0
+    ref:
+      dist: uniform
+      min: 0.2
+      max: 0.8
+    proposal: 0.1
+    latex: x_\mathrm{HII}^{(9)}
+  A_s: 2.12e-09
+  n_s: 0.9651
+  omega_b: 0.02237
+  omega_cdm: 0.1201
+  H0: 67.32
+  N_ur: 2.0328
+  tau_reio:
+    latex: \tau_\mathrm{reio}
+sampler:
+  mcmc:
+    Rminus1_stop: 0.02
+    Rminus1_cl_stop: 0.2
+    max_tries: 10000
+    learn_proposal: true
+output: B9

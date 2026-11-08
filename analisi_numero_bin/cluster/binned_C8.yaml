@@ -5,7 +5,7 @@
 # bordi: [5.35, 6.05, 6.45, 6.75, 7.15, 7.45, 9.5, 12.0, 25.0]
 #
 # Si lancia dalla radice del repository:
-#   sbatch analisi_numero_bin/cluster/binned_cmb.sbatch C8
+#   sbatch analisi_numero_bin/cluster/run_binned_C8.sh
 # oppure a mano:
 #   mpirun -n 4 cobaya-run analisi_numero_bin/cluster/binned_C8.yaml -r
 
