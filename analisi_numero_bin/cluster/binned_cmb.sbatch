@@ -16,18 +16,26 @@
 #SBATCH --ntasks=4                     # 4 catene MCMC
 #SBATCH --cpus-per-task=2              # 2 core OpenMP a catena per CLASS
 #SBATCH --mem=16G
-#SBATCH --output=binned_cmb_%x_%j.out  # %j = numero del job
+#SBATCH --output=binned_cmb_%j.out     # %j = numero del job
+#SBATCH --export=ALL                   # il job eredita l'ambiente del terminale
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=gnsvnt@unife.it
+#
+# PRIMA di sbatch, nel terminale:   conda activate act_env
+# (con --export=ALL il job usa l'ambiente attivo in quel momento)
 
 SCHEMA=$1
 if [ -z "$SCHEMA" ]; then
     echo "uso: sbatch analisi_numero_bin/cluster/binned_cmb.sbatch C7"; exit 1
 fi
 
-# --- ambiente: CONTROLLA che siano le stesse righe del tuo sbatch della tanh --
-source ~/.bashrc
-conda activate act_env
-
+cd $SLURM_SUBMIT_DIR                          # la cartella da cui hai lanciato sbatch
+export OMP_PROC_BIND=spread
+export OMP_PLACES=threads
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK   # i 2 core a catena li usa CLASS
 
 # srun lancia i 4 processi MPI (= mpirun -n 4 dentro SLURM)
-srun cobaya-run analisi_numero_bin/cluster/binned_${SCHEMA}.yaml -r
+# -p: dove cobaya trova i dati delle likelihood (lowl.TT)
+# -r: riprende le catene se esistono gia'
+srun --cpu-bind=cores cobaya-run analisi_numero_bin/cluster/binned_${SCHEMA}.yaml \
+    -p /leonardo_work/INF26_indark/vgenesin/Reiolike/packages -r
