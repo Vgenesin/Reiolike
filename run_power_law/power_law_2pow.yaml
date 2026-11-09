@@ -1,0 +1,65 @@
+# Run power_law_2pow: storia power law di Ilic et al. 2025 (arXiv:2504.13254).
+# 2-pow: z_beg FISSO a 20 (opzione reio_z_beg della theory), campionati z_end, alpha, A_s.
+# Prior come Ilic et al. 2025 (arXiv:2504.13254): z_end U(5, 20), alpha U(0, 20).
+# Likelihood: astrofisica (corecon_config.yaml) + ELiCA + Planck lowl.TT.
+# Cosmologia fissa: Pagano et al. 2020, Tab. 3, TTTEEE+lowE-S2.
+#
+# Si lancia dalla radice del repository:
+#   sbatch run_power_law/run_power_law_2pow.sh
+
+debug: False
+
+params:
+  reio_z_end:
+    prior: {min: 5.0, max: 20.0}
+    ref: {dist: norm, loc: 5.8, scale: 0.3}
+    proposal: 0.2
+    latex: z_\mathrm{end}
+  reio_alpha:
+    prior: {min: 0.0, max: 20.0}
+    ref: {dist: norm, loc: 3.0, scale: 0.5}
+    proposal: 0.5
+    latex: \alpha
+
+  A_s:
+    prior: {min: 1.5e-9, max: 3.5e-9}
+    ref: {dist: norm, loc: 2.120e-9, scale: 3.0e-11}
+    proposal: 2.0e-11
+    latex: A_s
+
+  # cosmologia fissa: Pagano et al. 2020 (arXiv:1908.09856), Tab. 3, TTTEEE+lowE-S2
+  n_s: 0.9651
+  omega_b: 0.02237
+  omega_cdm: 0.1201
+  H0: 67.32
+  N_ur: 2.0328
+
+  tau_reio:                  # derivato
+    latex: \tau_\mathrm{reio}
+
+theory:
+  Reiolike.ReioTheory:
+    reio_model: power_law
+    reio_z_beg: 20.0          # 2-pow: inizio fisso a z = 20
+    z_max: 30.0
+    z_points: 250
+    extra_args:
+      N_ncdm: 1
+      m_ncdm: 0.06
+      T_ncdm: 0.71611
+
+likelihood:
+  Reiolike.ReioLike:
+    corecon_config_file: corecon_config.yaml
+    print_sigma_table: False
+  elica: null
+  planck_2018_lowl.TT: null
+
+sampler:
+  mcmc:
+    Rminus1_stop: 0.01        # convergenza delle medie (come il paper)
+    Rminus1_cl_stop: 0.1      # convergenza degli intervalli
+    max_tries: 10000
+    learn_proposal: True
+
+output: chains/power_law_2pow/power_law_2pow_corecon_ELiCA_lowTT
