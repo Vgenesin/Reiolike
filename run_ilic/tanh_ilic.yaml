@@ -24,7 +24,7 @@ params:
   # --- reionizzazione -------------------------------------------------------
   reio_z_re:
     prior: {min: 5.0, max: 25.0}
-    ref: {dist: norm, loc: 7.7, scale: 0.5}
+    ref: {dist: norm, loc: 8.0, scale: 0.5}
     proposal: 0.3
     latex: z_\mathrm{re}
   reio_delta_z: 0.5          # fisso, come il tanh del paper
@@ -84,7 +84,13 @@ likelihood:
 
 sampler:
   mcmc:
-    covmat: auto              # covmat di Planck se c'e' tra i pacchetti: solo partenza piu' veloce
+    # covmat di partenza: dalla vecchia run LCDM + HiLLiPoP v4.2 + ELiCA + lowTT
+    # (~/Documents/thesis/paper/hillipop/), con i nomi dei parametri di questo
+    # YAML (zrei -> reio_z_re).  Serve solo a partire con la proposta giusta,
+    # soprattutto per le nuisance di HiLLiPoP: la posteriore non cambia, e
+    # cobaya la impara comunque durante il run.  Percorso relativo alla
+    # radice del repository, da dove si lancia.
+    covmat: run_ilic/tanh_ilic.covmat
     Rminus1_stop: 0.01        # come il paper
     Rminus1_cl_stop: 0.1
     max_tries: 10000
