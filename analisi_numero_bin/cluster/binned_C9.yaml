@@ -71,7 +71,7 @@ params:
   omega_b: 0.02237
   omega_cdm: 0.1201
   H0: 67.32
-  N_ur: 2.0328
+  N_ur: 0.00641              # 3 neutrini massivi degeneri: N_eff = 3.046
 
   # --- derivato -------------------------------------------------------------
   tau_reio:
@@ -85,15 +85,17 @@ theory:
     z_max: 30.0
     z_points: 250
     extra_args:
+      # 3 neutrini massivi degeneri da 0.02 eV (somma 0.06 eV)
       N_ncdm: 1
-      m_ncdm: 0.06
+      deg_ncdm: 3
+      m_ncdm: 0.02
       T_ncdm: 0.71611
 
 likelihood:
   Reiolike.ReioLike:
     corecon_config_file: corecon_config.yaml
     print_sigma_table: False
-  elica.hybridHL: null
+  elica: null
   planck_2018_lowl.TT: null
 
 sampler:

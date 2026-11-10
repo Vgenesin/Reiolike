@@ -6,7 +6,7 @@ Dallo screening senza CMB (screening_bin.py) si tiene la parte a basso z, dove
 decidono i dati astrofisici:
     bordi 5.35, 6.05, 6.45, 6.75, 7.15, 7.45
 Sopra 7.45 si provano schemi annidati, C6 < C7 < C8 < C9, con
-    astrofisica (corecon_config.yaml) + ELiCA hybridHL + Planck lowl.TT
+    astrofisica (corecon_config.yaml) + ELiCA + Planck lowl.TT
 e A_s libero.
 
 Due comandi:
@@ -92,7 +92,7 @@ params:
   omega_b: 0.02237
   omega_cdm: 0.1201
   H0: 67.32
-  N_ur: 2.0328
+  N_ur: 0.00641              # 3 neutrini massivi degeneri: N_eff = 3.046
 
   # --- derivato -------------------------------------------------------------
   tau_reio:
@@ -106,8 +106,10 @@ theory:
     z_max: 30.0
     z_points: 250
     extra_args:
+      # 3 neutrini massivi degeneri da 0.02 eV (somma 0.06 eV)
       N_ncdm: 1
-      m_ncdm: 0.06
+      deg_ncdm: 3
+      m_ncdm: 0.02
       T_ncdm: 0.71611
 
 likelihood:
@@ -139,9 +141,9 @@ BLOCCO_BIN = """\
 def scrivi_yaml():
     os.makedirs(CARTELLA_YAML, exist_ok=True)
     if ELICA_PATH:
-        elica = f"  elica.hybridHL:\n    python_path: {ELICA_PATH}"
+        elica = f"  elica:\n    python_path: {ELICA_PATH}"
     else:
-        elica = "  elica.hybridHL: null"
+        elica = "  elica: null"
     for nome, bordi in SCHEMI.items():
         n = len(bordi) - 1
         partenze = PARTENZA_BASSO + [PARTENZA_ALTO] * (n - len(PARTENZA_BASSO))
