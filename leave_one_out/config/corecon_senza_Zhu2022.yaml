@@ -1,0 +1,23 @@
+# Dataset per la run leave-one-out 'senza_Zhu2022'.
+# Tolto: Zhu et al. 2022
+# Generato da leave_one_out/leave_one_out.py: non modificare a mano.
+
+HII_fraction:
+- Umeda et al. 2025 [ACF]
+- Umeda et al. 2026
+- Durovcikova et al. 2024 [ATON]
+- Whitler et al. 2020 [no]
+- Totani et al. 2014 [variable_dz]
+- Greig et al. 2022 [joint]
+- Jung et al. 2020
+- Kageura et al. 2025
+upper_limit_HII_fraction:
+- Mason et al. 2019 [CL=0.68]
+lower_limit_HII_fraction:
+- Totani et al. 2006 [CL=0.68]
+- Davies et al. 2026 [negative]
+- Wold et al. 2022 [McQuinn et al. (2007)]
+- Fausey et al. 2024 [free, McQuinn et al. 2008]
+mixed_HII_fraction:
+- Umeda et al. 2025 [LF, indipendente]
+- Bolan et al. 2022 [CL=0.68]

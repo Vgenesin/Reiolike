@@ -1,0 +1,21 @@
+#!/bin/bash
+# Lancia tutte le run del leave-one-out, una sbatch per run.
+# Dalla radice del repository:  bash leave_one_out/lancia_tutti.sh
+
+sbatch leave_one_out/run_loo_tutti.sh
+sbatch leave_one_out/run_loo_senza_Umeda2025_ACF.sh
+sbatch leave_one_out/run_loo_senza_Umeda2026.sh
+sbatch leave_one_out/run_loo_senza_Durovcikova2024_ATON.sh
+sbatch leave_one_out/run_loo_senza_Whitler2020_no.sh
+sbatch leave_one_out/run_loo_senza_Totani2014_variable_dz.sh
+sbatch leave_one_out/run_loo_senza_Greig2022_joint.sh
+sbatch leave_one_out/run_loo_senza_Jung2020.sh
+sbatch leave_one_out/run_loo_senza_Kageura2025.sh
+sbatch leave_one_out/run_loo_senza_Mason2019_CL_0_68.sh
+sbatch leave_one_out/run_loo_senza_Totani2006_CL_0_68.sh
+sbatch leave_one_out/run_loo_senza_Davies2026_negative.sh
+sbatch leave_one_out/run_loo_senza_Zhu2022.sh
+sbatch leave_one_out/run_loo_senza_Wold2022_McQuinn_et_al_2007.sh
+sbatch leave_one_out/run_loo_senza_Fausey2024_free_McQuinn_et_al_2008.sh
+sbatch leave_one_out/run_loo_senza_Umeda2025_LF_indipendente.sh
+sbatch leave_one_out/run_loo_senza_Bolan2022_CL_0_68.sh

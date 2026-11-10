@@ -1,0 +1,71 @@
+# Leave-one-out 'senza_Fausey2024_free_McQuinn_et_al_2008': tolto 'Fausey et al. 2024 [free, McQuinn et al. 2008]'.
+# Generato da leave_one_out/leave_one_out.py a partire da
+# run_tanh/tanh_planck_dz_libero.yaml: cambiano SOLO
+# corecon_config_file e output.
+#
+# Run tanh_planck_dz_libero: tanh di CLASS reio_camb (= CAMB/Planck), in y = (1+z)^1.5.
+# Likelihood: astrofisica (corecon_config.yaml) + ELiCA + Planck lowl.TT.
+# Campionati: z_re, dz, A_s.  Cosmologia fissa: Pagano et al. 2020,
+# Tab. 3, TTTEEE+lowE-S2.
+#
+# Le quattro run (run_tanh/*.yaml) sono identiche tranne reio_model, reio_delta_z
+# e output.  Si lancia dalla radice del repository:
+#   sbatch run_tanh/run_tanh_planck_dz_libero.sh
+
+debug: False
+
+params:
+  reio_z_re:
+    prior: {min: 5.0, max: 12.0}
+    ref: {dist: norm, loc: 7.2, scale: 0.3}
+    proposal: 0.1
+    latex: z_\mathrm{re}
+  reio_delta_z:
+    prior: {min: 0.1, max: 3.0}
+    ref: {dist: norm, loc: 1.0, scale: 0.2}
+    proposal: 0.1
+    latex: \Delta z
+
+  A_s:
+    prior: {min: 1.5e-9, max: 3.5e-9}
+    ref: {dist: norm, loc: 2.120e-9, scale: 3.0e-11}
+    proposal: 2.0e-11
+    latex: A_s
+
+  # cosmologia fissa: Pagano et al. 2020 (arXiv:1908.09856), Tab. 3, TTTEEE+lowE-S2
+  n_s: 0.9651
+  omega_b: 0.02237
+  omega_cdm: 0.1201
+  H0: 67.32
+  N_ur: 0.00641              # 3 neutrini massivi degeneri: N_eff = 3.046
+
+  tau_reio:                  # derivato
+    latex: \tau_\mathrm{reio}
+
+theory:
+  Reiolike.ReioTheory:
+    reio_model: tanh_class
+    z_max: 30.0
+    z_points: 250
+    extra_args:
+      # 3 neutrini massivi degeneri da 0.02 eV (somma 0.06 eV)
+      N_ncdm: 1
+      deg_ncdm: 3
+      m_ncdm: 0.02
+      T_ncdm: 0.71611
+
+likelihood:
+  Reiolike.ReioLike:
+    corecon_config_file: leave_one_out/config/corecon_senza_Fausey2024_free_McQuinn_et_al_2008.yaml
+    print_sigma_table: False
+  elica: null
+  planck_2018_lowl.TT: null
+
+sampler:
+  mcmc:
+    Rminus1_stop: 0.01        # convergenza delle medie
+    Rminus1_cl_stop: 0.1      # convergenza degli intervalli
+    max_tries: 10000
+    learn_proposal: True
+
+output: chains/leave_one_out/loo_senza_Fausey2024_free_McQuinn_et_al_2008/loo_senza_Fausey2024_free_McQuinn_et_al_2008_ELiCA_lowTT
