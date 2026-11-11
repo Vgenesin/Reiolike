@@ -59,7 +59,7 @@ params:
     ref: {dist: norm, loc: 67.5, scale: 0.5}
     proposal: 0.5
     latex: H_0
-  N_ur: 0.00641              # 3 neutrini massivi degeneri: N_eff = 3.046, come le altre run
+  N_ur: 0.00441              # 3 neutrini massivi degeneri: N_eff = 3.044
 
   # --- derivati ---------------------------------------------------------------
   tau_reio:

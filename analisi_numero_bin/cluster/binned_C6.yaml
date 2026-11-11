@@ -56,7 +56,7 @@ params:
   omega_b: 0.02237
   omega_cdm: 0.1201
   H0: 67.32
-  N_ur: 0.00641              # 3 neutrini massivi degeneri: N_eff = 3.046
+  N_ur: 0.00441              # 3 neutrini massivi degeneri: N_eff = 3.044
 
   # --- derivato -------------------------------------------------------------
   tau_reio:
