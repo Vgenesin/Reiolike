@@ -8,7 +8,7 @@
 #SBATCH -o  run_ilic/log/log_tanh_ilic_job%j.txt
 #SBATCH -A INF26_indark
 #SBATCH --export=ALL
-#SBATCH --mem=32000
+#SBATCH --mem=120000
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=gnsvnt@unife.it
 
