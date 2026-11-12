@@ -2,13 +2,13 @@
 #SBATCH -p boost_usr_prod
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=4
 #SBATCH -t 24:00:00
 #SBATCH -J  tanh_ilic
 #SBATCH -o  run_ilic/log/log_tanh_ilic_job%j.txt
 #SBATCH -A INF26_indark
 #SBATCH --export=ALL
-#SBATCH --mem=64000
+#SBATCH --mem=32000
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=gnsvnt@unife.it
 
