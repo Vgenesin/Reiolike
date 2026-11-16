@@ -1,0 +1,75 @@
+# Profilo della power law 3-pow: alpha_09.00
+# Generato da profilo_3pow/prepara.py da run_power_law/power_law_3pow.yaml;
+# parametri fissati: {'reio_alpha': 9.0}
+
+debug: false
+params:
+  reio_z_end:
+    prior:
+      min: 5.0
+      max: 7.0
+    ref:
+      dist: uniform
+      loc: 5.2
+      scale: 1.3
+    proposal: 0.2
+    latex: z_\mathrm{end}
+  reio_alpha:
+    value: 9.0
+    latex: \alpha
+  reio_durata:
+    prior:
+      min: 0.001
+      max: 18.0
+    ref:
+      dist: uniform
+      loc: 0.5
+      scale: 17.0
+    proposal: 1.0
+    latex: z_\mathrm{beg} - z_\mathrm{end}
+    drop: true
+  reio_z_beg:
+    value: 'lambda reio_z_end, reio_durata: reio_z_end + reio_durata'
+    derived: true
+    latex: z_\mathrm{beg}
+  A_s:
+    prior:
+      min: 1.5e-09
+      max: 3.5e-09
+    ref:
+      dist: norm
+      loc: 2.12e-09
+      scale: 3.0e-11
+    proposal: 2.0e-11
+    latex: A_s
+  n_s: 0.9651
+  omega_b: 0.02237
+  omega_cdm: 0.1201
+  H0: 67.32
+  N_ur: 0.00441
+  tau_reio:
+    latex: \tau_\mathrm{reio}
+theory:
+  Reiolike.ReioTheory:
+    reio_model: power_law
+    z_max: 30.0
+    z_points: 250
+    extra_args:
+      N_ncdm: 1
+      deg_ncdm: 3
+      m_ncdm: 0.02
+      T_ncdm: 0.71611
+likelihood:
+  Reiolike.ReioLike:
+    corecon_config_file: corecon_config.yaml
+    print_sigma_table: false
+  elica: null
+  planck_2018_lowl.TT: null
+sampler:
+  minimize:
+    method: bobyqa
+    ignore_prior: true
+    best_of: 16
+    override_bobyqa:
+      rhoend: 0.05
+output: chains/profilo_3pow/alpha_09.00/alpha_09.00
