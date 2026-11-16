@@ -1,0 +1,80 @@
+# Run gompertz: storia Gompertz + SRFull di Montero-Camacho, Li & Cranmer 2024
+# (arXiv:2405.13680), con lo STESSO setup delle altre run (tanh, power law,
+# binned), per confrontarle:
+#   - likelihood: astrofisica (corecon_config.yaml) + ELiCA + Planck lowl.TT;
+#   - cosmologia fissa: Pagano et al. 2020, Tab. 3, TTTEEE+lowE-S2;
+#   - 3 neutrini massivi degeneri da 0.02 eV, N_ur 0.00441 (N_eff = 3.044);
+#   - campionati A_s (come nelle altre run e nel paper) e zeta_uv.
+#
+# Niente parametri di reionizzazione: la storia la danno le formule SR
+# (Eqs. 3.1-3.2) da (sigma8, n_s, h, Omega_b, Omega_m, zeta_uv).
+# gompertz_sigma8_source: class_mPk -> a ogni punto una run di CLASS solo P(k)
+# ricava sigma8 da A_s con la cosmologia completa (neutrini compresi), poi la
+# storia, poi la run vera.
+#
+# Eq. 2.1 (intervallo delle simulazioni del paper): la cosmologia fissa e'
+# dentro (h 0.673, Omega_b 0.049, Omega_m 0.314, n_s 0.965), zeta_uv ha il
+# prior del box.  Il prior su A_s e' quello delle altre run: i punti con
+# sigma8 fuori da [0.74, 0.90] (circa A_s fuori da [1.75, 2.6]e-9) vengono
+# scartati punto per punto, la posteriore (A_s ~ 2e-9) sta ben dentro.
+#
+# ATTENZIONE: l'astrofisica e' quella di corecon_config.yaml (tutti i dataset
+# delle altre run); il paper usa solo le damping wing dei quasar.  Da
+# sistemare: questa run serve al confronto con le altre, non con il paper.
+#
+# Si lancia dalla radice del repository:
+#   sbatch run_gompertz/run_gompertz.sh
+
+debug: False
+
+params:
+  zeta_uv:
+    prior: {min: 20.0, max: 35.0}     # Eq. 2.1
+    ref: {dist: norm, loc: 27.0, scale: 1.0}
+    proposal: 1.0
+    latex: \zeta_\mathrm{UV}
+
+  A_s:
+    prior: {min: 1.5e-9, max: 3.5e-9}
+    ref: {dist: norm, loc: 2.0e-9, scale: 3.0e-11}
+    proposal: 2.0e-11
+    latex: A_s
+
+  # cosmologia fissa: Pagano et al. 2020 (arXiv:1908.09856), Tab. 3, TTTEEE+lowE-S2
+  n_s: 0.9651
+  omega_b: 0.02237
+  omega_cdm: 0.1201
+  H0: 67.32
+  N_ur: 0.00441              # 3 neutrini massivi degeneri: N_eff = 3.044
+
+  tau_reio:                  # derivato
+    latex: \tau_\mathrm{reio}
+
+theory:
+  Reiolike.ReioTheory:
+    reio_model: gompertz_sr
+    gompertz_sigma8_source: class_mPk   # A_s campionato, sigma8 calcolato da CLASS
+    z_max: 30.0                          # massimo ammesso per il gompertz
+    z_points: 250
+    extra_args:
+      # 3 neutrini massivi degeneri da 0.02 eV (somma 0.06 eV)
+      N_ncdm: 1
+      deg_ncdm: 3
+      m_ncdm: 0.02
+      T_ncdm: 0.71611
+
+likelihood:
+  Reiolike.ReioLike:
+    corecon_config_file: corecon_config.yaml
+    print_sigma_table: False
+  elica: null
+  planck_2018_lowl.TT: null
+
+sampler:
+  mcmc:
+    Rminus1_stop: 0.01        # come le altre run
+    Rminus1_cl_stop: 0.1
+    max_tries: 10000
+    learn_proposal: True
+
+output: chains/gompertz/gompertz_corecon_ELiCA_lowTT

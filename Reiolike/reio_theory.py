@@ -614,27 +614,35 @@ class ReioTheory(classy):
     reio_pca_smooth_sigma_z: float = 0.0
 
     # -----------------------------------------------------------------------
-    def _compute_sigma8_from_As(self, omega_b, omega_cdm, H0, n_s,
-                                 logA=None, A_s=None):
-        """
-        Derive sigma8 from A_s using a lightweight CLASS call.
+    # Chiavi dell'output dei Cl da togliere nella run di sigma8, che chiede solo
+    # lo spettro della materia: con output='mPk' CLASS rifiuterebbe lensing e
+    # non leggerebbe i l_max ("did not read input parameter(s)").
+    _NON_PER_SIGMA8 = frozenset({"output", "lensing", "l_max_scalars", "l_max_tensors",
+                                 "non_linear", "hmcode_version", "z_pk"})
 
-        Only requests output='mPk' (matter power spectrum, no CMB Cl).
-        sigma8 is independent of the reionisation history, so a dummy
-        tau_reio is used; this introduces no error.
+    def _compute_sigma8_from_As(self, native_params, logA=None, A_s=None):
+        """
+        sigma8 da A_s con una run di CLASS a parte (solo lo spettro della
+        materia, output='mPk').  Serve perche' la storia del gompertz va data a
+        CLASS PRIMA del calcolo, ma dipende da sigma8, che e' un risultato del
+        calcolo; sigma8 non dipende dalla reionizzazione (qui reio_none).
+
+        La cosmologia e' la STESSA della run vera: parametri del punto +
+        extra_args, con la ricetta di _argomenti_fondo (neutrini massivi,
+        N_ur, YHe, ... compresi).  Fino al 16 nov 2026 qui si passavano solo
+        omega_b, omega_cdm, H0, n_s, A_s: CLASS usava neutrini SENZA massa e
+        sigma8 usciva alto (+1.3% con 3 nu da 0.02 eV: 0.8214 invece di
+        0.8110, z_re del gompertz +0.11), e non sentiva m_nu.
+
+        Restituisce sigma8 di tutta la materia (neutrini compresi), quello
+        con cui il pacchetto riproduce il sigma8 della Tab. 1 del paper
+        (0.8094 contro 0.8100(44) con 1 nu da 0.06 eV).
 
         Parameters
         ----------
-        omega_b, omega_cdm : float  — Omega_b*h², Omega_cdm*h²
-        H0                 : float  — Hubble constant [km/s/Mpc]
-        n_s                : float  — spectral index
-        logA               : float, optional  — ln(10^10 A_s)
-        A_s                : float, optional  — A_s directly
-        (at least one of logA / A_s must be provided)
-
-        Returns
-        -------
-        sigma8 : float
+        native_params : dict — i parametri del punto, come in calculate()
+        logA          : float, optional — ln(10^10 A_s)
+        A_s           : float, optional — A_s (uno dei due e' obbligatorio)
         """
         if _ClassPy is None:
             raise ImportError(
@@ -650,19 +658,13 @@ class ReioTheory(classy):
                 "_compute_sigma8_from_As: fornire 'logA' oppure 'A_s'."
             )
 
+        args = {k: v for k, v in self._argomenti_fondo(native_params).items()
+                if k not in self._NON_PER_SIGMA8 and not k.startswith("P_k_max")}
+        args.update({"output": "mPk", "P_k_max_h/Mpc": 1.0, "A_s": A_s_val})
+
         cosmo = _ClassPy()
         try:
-            cosmo.set({
-                'output'         : 'mPk',
-                'P_k_max_h/Mpc'  : 1.0,
-                'omega_b'        : float(omega_b),
-                'omega_cdm'      : float(omega_cdm),
-                'H0'             : float(H0),
-                'n_s'            : float(n_s),
-                'A_s'            : A_s_val,
-                'reio_parametrization': 'reio_camb',
-                'tau_reio'       : 0.055,
-            })
+            cosmo.set(args)
             cosmo.compute()
             s8 = cosmo.sigma8()
         finally:
@@ -763,67 +765,138 @@ class ReioTheory(classy):
                      "Omega_b": (0.04, 0.06), "Omega_m": (0.24, 0.40),
                      "zeta_uv": (20.0, 35.0)}
 
+    def _fuori_box_gompertz(self, **valori):
+        """Nomi dei parametri (fra quelli passati) fuori dall'Eq. 2.1."""
+        return [k for k, v in valori.items()
+                if not self._GOMPERTZ_BOX[k][0] <= v <= self._GOMPERTZ_BOX[k][1]]
+
     def _controlla_prior_gompertz(self, model):
         """
-        Avvisa se i prior del run escono dall'intervallo di validita' del
-        paper (Eq. 2.1).  Fuori da li' le formule SR sono estrapolazioni senza
-        garanzie, e il polinomio P5 puo' produrre una seconda ionizzazione
-        finta: misurato il 28 ott 2026 (Tests/test_affidabilita_gompertz.py),
-        con zeta_uv fino a 100 succede sotto z = 30 nel 14% dei punti e falsa
-        tau in mediana di 0.08.  Dentro l'Eq. 2.1 non succede mai sotto z = 32.
+        Il prior deve stare DENTRO l'intervallo delle simulazioni del paper
+        (Eq. 2.1): le formule SR (Eqs. 3.1-3.2) e la forma P5 (Eq. 2.3) sono
+        state fittate li', e fuori non hanno garanzie.  Misurato il 16 nov 2026
+        con prior larghi come quelli di Ilic (LCDM libero): nel 79% dei punti
+        l'Eq. 3.2 ha il log di un numero negativo (Omega_m + ns*h > ~1.2),
+        il 4.7% ha una seconda ionizzazione finta sotto z = 30.  Dentro il box
+        e nella fetta Planck +-5 sigma: nessun fallimento.
 
-        Un avviso e non un errore: allargare il prior puo' essere una scelta
-        voluta (test, confronti).  Gli intervalli vengono dal prior dei
-        parametri campionati (al 99.99% se illimitato) o dal valore di quelli
-        fissati; Omega_b = omega_b/h^2 e Omega_m = (omega_b + omega_cdm)/h^2
-        si prendono agli estremi della combinazione dei tre prior.
+        Due tipi di parametro:
+          - sigma8 (se campionato), zeta_uv, n_s, h = H0/100 si campionano o
+            si fissano direttamente: se il loro prior (limitato) o il loro
+            valore esce dal box, ERRORE all'avvio.  Un prior illimitato
+            (gaussiano) non puo' stare dentro: avviso, le code vengono
+            scartate punto per punto in calculate();
+          - Omega_b = omega_b/h^2 e Omega_m = (omega_b + omega_cdm)/h^2 sono
+            combinazioni: un prior rettangolare su omega_b, omega_cdm, H0 ha
+            quasi sempre gli angoli fuori dal box anche quando e' ragionevole
+            (H0 61-73, omega_cdm 0.10-0.14 da' gia' Omega_m 0.22-0.45).  Li'
+            si scarta punto per punto, e all'avvio si dice quanta parte del
+            prior viene tagliata (stimata estraendo dal prior).  ERRORE solo
+            se il taglio e' totale.
+        calculate() comunque scarta OGNI punto fuori dal box, per tutti e sei
+        i parametri: il prior effettivo e' sempre dentro l'Eq. 2.1.
         """
         if model is None:
             return
+
+        # --- A_s o sigma8: uno solo, quello giusto per la modalita' ----------
+        # 'sample': si campiona sigma8 e CLASS ricava A_s; un A_s/logA nel
+        # YAML verrebbe IGNORATO in silenzio (calculate() lo toglie prima di
+        # CLASS): la catena lo camminerebbe come una direzione piatta.
+        # Misurato il 16 nov 2026: A_s 1.6, 2.1, 3.4e-9 -> stessa logpost.
+        # 'class_mPk': si campiona A_s e sigma8 lo calcola CLASS; un sigma8
+        # nel YAML arriverebbe a CLASS insieme ad A_s.
+        presenti = set(model.parameterization.input_params()) | set(
+            model.parameterization.sampled_params())
+        ampiezze = sorted(presenti & {"A_s", "logA", "ln10^{10}A_s", "ln_A_s_1e10"})
+        if self.gompertz_sigma8_source == "sample" and ampiezze:
+            raise ValueError(
+                "ReioTheory (gompertz_sr, gompertz_sigma8_source='sample'): nei "
+                f"parametri c'e' {', '.join(ampiezze)}. Con 'sample' si campiona "
+                "sigma8 e CLASS ricava A_s da sigma8: A_s verrebbe ignorato e la "
+                "catena lo camminerebbe senza vincoli. Per campionare A_s (come "
+                "Montero-Camacho et al. 2024) usa gompertz_sigma8_source: "
+                "class_mPk e togli sigma8; altrimenti togli A_s/logA.")
+        if self.gompertz_sigma8_source == "class_mPk" and "sigma8" in presenti:
+            raise ValueError(
+                "ReioTheory (gompertz_sr, gompertz_sigma8_source='class_mPk'): con "
+                "'class_mPk' si campiona A_s (o logA) e sigma8 lo calcola CLASS: "
+                "togli sigma8 dai parametri, o usa gompertz_sigma8_source: sample "
+                "e togli A_s/logA.")
+
+        box = self._GOMPERTZ_BOX
         costanti = model.parameterization.constant_params()
         nomi = list(model.prior.params)
-        bounds = model.prior.bounds(confidence_for_unbounded=0.9999) if nomi else []
+        limiti = model.prior.bounds(confidence_for_unbounded=1.0) if nomi else []
 
         def intervallo(p):
             if p in costanti:
                 v = float(costanti[p])
                 return v, v
             if p in nomi:
-                lo, hi = bounds[nomi.index(p)]
+                lo, hi = limiti[nomi.index(p)]
                 return float(lo), float(hi)
             return None
 
-        r = {"zeta_uv": intervallo("zeta_uv"), "ns": intervallo("n_s")}
+        # --- parametri diretti: devono stare dentro, altrimenti errore -------
+        diretti = {"zeta_uv": ("zeta_uv", 1.0), "ns": ("n_s", 1.0), "h": ("H0", 0.01)}
         if self.gompertz_sigma8_source == "sample":
-            r["sigma8"] = intervallo("sigma8")
-        H0, ob, oc = intervallo("H0"), intervallo("omega_b"), intervallo("omega_cdm")
-        if H0 is not None:
-            r["h"] = (H0[0] / 100.0, H0[1] / 100.0)
-            if ob is not None:
-                r["Omega_b"] = (ob[0] / r["h"][1] ** 2, ob[1] / r["h"][0] ** 2)
-                if oc is not None:
-                    r["Omega_m"] = ((ob[0] + oc[0]) / r["h"][1] ** 2,
-                                    (ob[1] + oc[1]) / r["h"][0] ** 2)
-
-        fuori = [f"{k} in [{v[0]:.4g}, {v[1]:.4g}] (paper: [{self._GOMPERTZ_BOX[k][0]:g}, "
-                 f"{self._GOMPERTZ_BOX[k][1]:g}])"
-                 for k, v in r.items()
-                 if v is not None and (v[0] < self._GOMPERTZ_BOX[k][0] - 1e-12
-                                       or v[1] > self._GOMPERTZ_BOX[k][1] + 1e-12)]
-        non_controllati = [k for k in self._GOMPERTZ_BOX if r.get(k) is None]
+            diretti["sigma8"] = ("sigma8", 1.0)
+        fuori, illimitati = [], []
+        for k, (nome, scala) in diretti.items():
+            r = intervallo(nome)
+            if r is None:
+                continue                 # non campionato ne' fissato: lo controlla calculate()
+            lo, hi = r[0] * scala, r[1] * scala
+            if not (np.isfinite(lo) and np.isfinite(hi)):
+                illimitati.append(nome)
+            elif lo < box[k][0] - 1e-12 or hi > box[k][1] + 1e-12:
+                fuori.append(f"{nome} in [{r[0]:.4g}, {r[1]:.4g}] (Eq. 2.1: "
+                             f"{k} in [{box[k][0]:g}, {box[k][1]:g}])")
         if fuori:
+            raise ValueError(
+                "ReioTheory (gompertz_sr): il prior deve stare dentro l'intervallo "
+                "delle simulazioni su cui sono state fittate le formule SR "
+                "(Montero-Camacho et al. 2024, Eq. 2.1). Fuori: " + "; ".join(fuori)
+                + ". Fuori da li' l'Eq. 3.2 puo' avere il log di un numero "
+                "negativo e P5 una seconda ionizzazione finta. Restringi i prior.")
+        if illimitati:
             self.log.warning(
-                "gompertz_sr: i prior escono dall'intervallo di validita' del "
-                "paper (Montero-Camacho et al. 2024, Eq. 2.1): %s. Fuori da "
-                "li' le formule SR sono estrapolazioni senza garanzie, e il "
-                "polinomio P5 puo' generare una seconda ionizzazione finta ad "
-                "alto z che falsa tau (con zeta_uv fino a 100: tau +0.08 in "
-                "mediana). Se non e' voluto, restringi i prior.",
-                "; ".join(fuori))
-        if non_controllati:
-            self.log.debug("gompertz_sr: non controllati contro l'Eq. 2.1 "
-                           "(non campionati ne' fissati con questo nome): %s",
-                           ", ".join(non_controllati))
+                "gompertz_sr: prior illimitato su %s: le code fuori dall'Eq. 2.1 "
+                "vengono scartate punto per punto, il prior effettivo e' troncato "
+                "al box.", ", ".join(illimitati))
+
+        # --- Omega_b, Omega_m: quanta parte del prior cade fuori -------------
+        if not all(intervallo(p) is not None for p in ("H0", "omega_b", "omega_cdm")):
+            return
+        campionati = [p for p in ("H0", "omega_b", "omega_cdm") if p in nomi]
+        if campionati:
+            punti = model.prior.sample(n=20000, ignore_external=True,
+                                       random_state=np.random.default_rng(0))
+            val = {p: punti[:, nomi.index(p)] if p in nomi else float(costanti[p])
+                   for p in ("H0", "omega_b", "omega_cdm")}
+        else:
+            val = {p: float(costanti[p]) for p in ("H0", "omega_b", "omega_cdm")}
+        h2 = (np.asarray(val["H0"]) / 100.0) ** 2
+        Ob = np.asarray(val["omega_b"]) / h2
+        Om = (np.asarray(val["omega_b"]) + np.asarray(val["omega_cdm"])) / h2
+        fuori_ob = ~((box["Omega_b"][0] <= Ob) & (Ob <= box["Omega_b"][1]))
+        fuori_om = ~((box["Omega_m"][0] <= Om) & (Om <= box["Omega_m"][1]))
+        frazione = float(np.mean(fuori_ob | fuori_om))
+        if frazione >= 1.0:
+            raise ValueError(
+                "ReioTheory (gompertz_sr): con questi omega_b, omega_cdm, H0 nessun "
+                f"punto ha Omega_b in [{box['Omega_b'][0]:g}, {box['Omega_b'][1]:g}] e "
+                f"Omega_m in [{box['Omega_m'][0]:g}, {box['Omega_m'][1]:g}] "
+                f"(Eq. 2.1): Omega_b {np.min(Ob):.4g}-{np.max(Ob):.4g}, "
+                f"Omega_m {np.min(Om):.4g}-{np.max(Om):.4g}.")
+        if frazione > 0.0:
+            self.log.warning(
+                "gompertz_sr: il %.1f%% del prior ha Omega_b o Omega_m fuori "
+                "dall'Eq. 2.1 (Omega_b %.3g-%.3g, Omega_m %.3g-%.3g): quei punti "
+                "vengono scartati, il prior effettivo su omega_b, omega_cdm, H0 "
+                "e' tagliato al box.", 100 * frazione,
+                np.min(Ob), np.max(Ob), np.min(Om), np.max(Om))
 
     def _controlla_prior_pinned(self, model):
         """
@@ -2128,6 +2201,24 @@ class ReioTheory(classy):
                     "nei parametri."
                 )
 
+            # --- dentro l'Eq. 2.1, punto per punto ---------------------------
+            # Le formule SR valgono solo dove ci sono le simulazioni del paper.
+            # Fuori, l'Eq. 3.2 ha il log di un numero negativo appena
+            # Omega_m + ns*h supera ~1.2 (ValueError, che con stop_at_error
+            # fermerebbe la catena) e P5 da' storie finte.  Il punto si scarta:
+            # il prior effettivo e' il prior del YAML tagliato al box.  Serve
+            # soprattutto per Omega_b e Omega_m, che sono combinazioni di
+            # omega_b, omega_cdm e H0 e che nessun prior rettangolare su quei
+            # tre tiene dentro il box: vedi _controlla_prior_gompertz.
+            # sigma8 si controlla dopo, quando e' noto (con class_mPk costa
+            # una chiamata a CLASS: prima si scartano i punti gratis).
+            fuori = self._fuori_box_gompertz(ns=ns, h=h, Omega_b=Omega_b,
+                                             Omega_m=Omega_m, zeta_uv=zeta_uv)
+            if fuori:
+                self.log.debug("gompertz_sr: punto fuori dall'Eq. 2.1 (%s), scartato",
+                               ", ".join(fuori))
+                return False
+
             # --- obtain sigma8 according to the chosen source ----------------
             if self.gompertz_sigma8_source == "sample":
                 # sigma8 is a direct MCMC parameter
@@ -2148,10 +2239,8 @@ class ReioTheory(classy):
                 # A_s (or logA) is sampled; derive sigma8 via a quick CLASS run
                 logA_val = native_params.get("logA", None)
                 As_val   = native_params.get("A_s",  None)
-                sigma8 = self._compute_sigma8_from_As(
-                    omega_b=ombh2, omega_cdm=omch2, H0=H0, n_s=ns,
-                    logA=logA_val, A_s=As_val,
-                )
+                sigma8 = self._compute_sigma8_from_As(native_params,
+                                                      logA=logA_val, A_s=As_val)
                 self.log.debug("gompertz_sr: sigma8=%.4f (da run CLASS mPk)", sigma8)
                 # A_s / logA remain in native_params for the full CLASS run
 
@@ -2160,6 +2249,10 @@ class ReioTheory(classy):
                     f"gompertz_sigma8_source='{self.gompertz_sigma8_source}' "
                     "non riconosciuto. Usa 'sample' o 'class_mPk'."
                 )
+
+            if self._fuori_box_gompertz(sigma8=sigma8):
+                self.log.debug("gompertz_sr: sigma8=%.4g fuori dall'Eq. 2.1, scartato", sigma8)
+                return False
 
             # --- build the grid and compute xe(z) ----------------------------
             # Il modello Gompertz+SR non ha un z_re esplicito: centro e
