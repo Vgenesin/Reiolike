@@ -18,6 +18,8 @@ cd $SLURM_SUBMIT_DIR
 export OMP_PROC_BIND=spread
 export OMP_PLACES=threads
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+# in caso di segfault Python stampa dove si trovava (dentro CLASS o no)
+export PYTHONFAULTHANDLER=1
 
 
 srun --cpu-bind=cores cobaya-run run_ilic/power_law_3pow_ilic.yaml -p /leonardo_work/INF26_indark/vgenesin/Reiolike/packages -r
