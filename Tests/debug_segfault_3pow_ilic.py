@@ -26,8 +26,9 @@ oppure su un nodo di calcolo:
     srun -p boost_usr_prod -A INF26_indark -n 1 -c 2 --mem=8000 -t 00:30:00 \\
          python Tests/debug_segfault_3pow_ilic.py
 
-Esito: una riga per punto, OK oppure CRASH (con il codice di uscita: -11 e'
-il segfault).  Per i CRASH stampa anche il traceback di faulthandler, che
+Esito: una riga per punto, OK, CRASH (con il codice di uscita: -11 e' il
+segfault) oppure BLOCCATO (nessuna risposta in TIMEOUT secondi: si stampa
+dove era fermo, grazie a faulthandler).  Per i CRASH stampa anche il traceback di faulthandler, che
 dice se il crash e' dentro CLASS (classy.compute).
 """
 import glob
@@ -40,11 +41,14 @@ RADICE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 YAML = os.path.join(RADICE, "run_ilic", "power_law_3pow_ilic.yaml")
 CATENE = os.path.join(RADICE, "chains", "power_law_3pow_ilic", "power_law_3pow_ilic_PR4")
 PACKAGES = "/leonardo_work/INF26_indark/vgenesin/Reiolike/packages"
+TIMEOUT = 300            # secondi per punto: in locale un punto ne richiede ~7
 COSMO = ["reio_z_end", "reio_alpha", "reio_z_beg", "logA", "n_s", "omega_b", "omega_cdm", "H0"]
 
 FIGLIO = r'''
 import faulthandler, json, os, sys, contextlib, io
 faulthandler.enable()
+# se il calcolo si blocca: ogni 60 s stampa dove si trova (su stderr)
+faulthandler.dump_traceback_later(60, repeat=True)
 sys.path.insert(0, RADICE); os.chdir(RADICE)
 import numpy as np
 from cobaya.yaml import yaml_load_file
@@ -83,10 +87,21 @@ def prova(nome, punto):
     codice = (FIGLIO.replace("RADICE", repr(RADICE)).replace("YAML", repr(YAML))
               .replace("PACKAGES", repr(PACKAGES)).replace("COSMO", repr(COSMO))
               .replace("PUNTO", repr(json.dumps(punto))))
-    p = subprocess.run([sys.executable, "-c", codice], capture_output=True, text=True,
-                       env=dict(os.environ, PYTHONFAULTHANDLER="1"))
-    ris = [r for r in p.stdout.splitlines() if r.startswith("RISULTATO")]
+    # OMP_NUM_THREADS = CPU del job: senza, CLASS puo' aprire un thread per
+    # ogni core del nodo (32) su 2 CPU assegnate e diventare lentissimo.
+    env = dict(os.environ, PYTHONFAULTHANDLER="1",
+               OMP_NUM_THREADS=os.environ.get("SLURM_CPUS_PER_TASK", "2"))
     descr = ", ".join(f"{k.replace('reio_', '')} {punto[k]:.6g}" for k in ("reio_z_end", "reio_alpha", "reio_z_beg"))
+    try:
+        p = subprocess.run([sys.executable, "-c", codice], capture_output=True, text=True,
+                           env=env, timeout=TIMEOUT)
+    except subprocess.TimeoutExpired as e:
+        print(f"BLOCCATO {nome:32s} ({descr})  nessuna risposta in {TIMEOUT} s. Dove era:", flush=True)
+        err = e.stderr.decode() if isinstance(e.stderr, bytes) else (e.stderr or "")
+        coda = [r for r in err.splitlines() if r.strip()][-30:]
+        print("       " + "\n       ".join(coda), flush=True)
+        return
+    ris = [r for r in p.stdout.splitlines() if r.startswith("RISULTATO")]
     if p.returncode == 0 and ris:
         print(f"OK     {nome:34s} ({descr})  logpost, tau = {ris[0].split(maxsplit=1)[1]}", flush=True)
     else:
