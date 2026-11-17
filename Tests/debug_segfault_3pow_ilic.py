@@ -89,7 +89,10 @@ def prova(nome, punto):
               .replace("PUNTO", repr(json.dumps(punto))))
     # OMP_NUM_THREADS = CPU del job: senza, CLASS puo' aprire un thread per
     # ogni core del nodo (32) su 2 CPU assegnate e diventare lentissimo.
-    env = dict(os.environ, PYTHONFAULTHANDLER="1",
+    # COBAYA_NOMPI: senza, dentro srun il SECONDO processo figlio resta bloccato
+    # nell'inizializzazione di MPI (import di mpi4py), prima ancora di CLASS
+    # (visto sul cluster il 17 nov 2026).  Qui MPI non serve.
+    env = dict(os.environ, PYTHONFAULTHANDLER="1", COBAYA_NOMPI="1",
                OMP_NUM_THREADS=os.environ.get("SLURM_CPUS_PER_TASK", "2"))
     descr = ", ".join(f"{k.replace('reio_', '')} {punto[k]:.6g}" for k in ("reio_z_end", "reio_alpha", "reio_z_beg"))
     try:
