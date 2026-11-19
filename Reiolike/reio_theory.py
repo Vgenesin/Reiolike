@@ -1,13 +1,16 @@
 from cobaya.theory import Theory
 from cobaya.theories.classy import classy
 from cobaya.log import LoggedError
+import math
 import os
+import re
 
 import numpy as np
 from .reio_models import (tanh_model, tanh_class_model, class_reio_start,
                           tanh_pinned_end_model,
                           tanh_pinned_end_delta_z, gompertz_sr_model,
                           power_law_model, binned_model, make_bin_edges,
+                          flexknot_model,
                           bin_edges_from_data,
                           pca_model, helium_fullreio_step, f_he, _Y_HE)
 from .bbn_helium import TabellaBBN, delta_neff_bbn, file_bbn_di_class
@@ -450,6 +453,36 @@ class ReioTheory(classy):
     #     reio_alpha: {prior: {min: 0, max: 20}}
     reio_z_beg:       float = 20.0
 
+    # --- flexknot options ----------------------------------------------------
+    # Modelli a nodi di Ilic et al. 2025 (arXiv:2504.13254) Sect. 2.4, Tab. 1;
+    # il flexknot e' quello di Millea & Bouchet 2018.  N nodi in z, numerati dal
+    # BASSO redshift:
+    #   nodo 1   : x_e = 1 + f_He del punto (reionizzazione finita)
+    #   nodo N   : x_e = valore residuo della ricombinazione (il pavimento del
+    #              punto, fondo di CLASS x 1.05), per continuita'
+    #   nodi 2..N-1 : x_e = reio_flex_xHII<i> x (1 + f_He), x_HII in [0, 1]
+    #              (stessa convenzione dei bin: x_e ~ U(0, 1 + f_He) per ogni Y_He)
+    # Parametri CAMPIONATI: reio_flex_z1 ... reio_flex_zN e reio_flex_xHII2 ...
+    # reio_flex_xHII<N-1>.  N si ricava dai parametri presenti.  I punti con
+    # nodi non in ordine crescente vengono scartati: con i prior indipendenti
+    # del paper (tutti U(5, 25)) il prior effettivo e' uniforme sulla regione
+    # z1 < z2 < ... < zN.
+    #
+    # reio_flex_interp: 'pchip' -> modelli N-flex (PCHIP in z, monotona fra i
+    #                   nodi);  'linear' -> modelli N-knots (spezzata).
+    #
+    # Example YAML (3-flex del paper):
+    #   theory:
+    #     Reiolike.ReioTheory:
+    #       reio_model: flexknot
+    #       reio_flex_interp: pchip
+    #   params:
+    #     reio_flex_z1:    {prior: {min: 5, max: 25}}
+    #     reio_flex_z2:    {prior: {min: 5, max: 25}}
+    #     reio_flex_z3:    {prior: {min: 5, max: 25}}
+    #     reio_flex_xHII2: {prior: {min: 0, max: 1}}
+    reio_flex_interp: str = "pchip"
+
     # --- binned options ------------------------------------------------------
     # Modello a bin di Ilic et al. 2025 (arXiv:2504.13254) Sect. 2.5.
     #
@@ -697,6 +730,14 @@ class ReioTheory(classy):
                 "z ~ 32 (con la cosmologia di Planck sopra z ~ 40): una tabella "
                 "oltre z = 30 rischia di passarla a CLASS, che la conterebbe in "
                 f"tau. Usa z_max <= {self._GOMPERTZ_Z_MAX:g}.")
+        if self.reio_model == "flexknot" and self.reio_flex_interp not in self._FLEX_INTERP:
+            raise ValueError(
+                f"ReioTheory (flexknot): reio_flex_interp='{self.reio_flex_interp}' "
+                f"non valido: usa 'pchip' (modelli N-flex) o 'linear' (N-knots).")
+
+    _FLEX_INTERP = ("pchip", "linear")
+    _FLEX_Z = re.compile(r"^reio_flex_z(\d+)$")
+    _FLEX_X = re.compile(r"^reio_flex_xHII(\d+)$")
 
     def initialize_with_provider(self, provider):
         super().initialize_with_provider(provider)
@@ -706,6 +747,110 @@ class ReioTheory(classy):
             self._controlla_prior_gompertz(getattr(provider, "model", None))
         elif self.reio_model == "binned":
             self._controlla_prior_bin(getattr(provider, "model", None))
+        elif self.reio_model == "flexknot":
+            self._controlla_prior_flexknot(getattr(provider, "model", None))
+
+    def _flex_indici(self, nomi):
+        """
+        Dai nomi dei parametri reio_flex_*: (N, indici z, indici x_HII).
+        Solleva ValueError se lo schema non e' completo e coerente:
+        z1..zN contigui con N >= 2, x_HII esattamente per i nodi 2..N-1.
+        """
+        iz, ix, ignoti = [], [], []
+        for p in nomi:
+            if not p.startswith("reio_flex_"):
+                continue
+            mz, mx = self._FLEX_Z.match(p), self._FLEX_X.match(p)
+            if mz:
+                iz.append(int(mz.group(1)))
+            elif mx:
+                ix.append(int(mx.group(1)))
+            else:
+                ignoti.append(p)
+        if ignoti:
+            raise ValueError(
+                f"ReioTheory (flexknot): parametri non riconosciuti: {', '.join(ignoti)}. "
+                "I nomi validi sono reio_flex_z1..reio_flex_zN (redshift dei nodi, "
+                "dal piu' basso) e reio_flex_xHII2..reio_flex_xHII<N-1> (x_HII dei "
+                "nodi interni).")
+        n = len(iz)
+        if n < 2 or sorted(iz) != list(range(1, n + 1)):
+            raise ValueError(
+                f"ReioTheory (flexknot): servono i redshift dei nodi reio_flex_z1.."
+                f"reio_flex_zN con N >= 2 e senza buchi; trovati: "
+                f"{', '.join(f'reio_flex_z{i}' for i in sorted(iz)) or 'nessuno'}.")
+        attesi = list(range(2, n))
+        if sorted(ix) != attesi:
+            raise ValueError(
+                f"ReioTheory (flexknot): con {n} nodi servono "
+                + (f"reio_flex_xHII2..reio_flex_xHII{n - 1}" if attesi else "nessun reio_flex_xHII")
+                + " (il nodo 1 ha x_e = 1 + f_He e il nodo N il valore residuo, "
+                f"fissati come nel paper); trovati: "
+                f"{', '.join(f'reio_flex_xHII{i}' for i in sorted(ix)) or 'nessuno'}.")
+        return n
+
+    def _controlla_prior_flexknot(self, model):
+        """
+        All'avvio: schema dei parametri completo, prior dei redshift dentro
+        (0, z_max], prior degli x_HII dentro [0, 1].  Un nodo oltre z_max non
+        entrerebbe nella tabella di CLASS, e un x_HII fuori da [0, 1] non e' una
+        frazione: calculate() scarterebbe quei punti in silenzio, troncando il
+        prior.  Meglio saperlo prima di ore di cluster.
+        """
+        if model is None:
+            return
+        par = model.parameterization
+        nomi_tutti = list(par.input_params())
+        n = self._flex_indici(nomi_tutti)
+        costanti = par.constant_params()
+        nomi = list(model.prior.params)
+        b = model.prior.bounds(confidence_for_unbounded=1.0) if nomi else []
+        fuori, illimitati, z_lo = [], [], []
+        for i in range(1, n + 1):
+            k = f"reio_flex_z{i}"
+            if k in costanti:
+                lo = hi = float(costanti[k])
+            elif k in nomi:
+                lo, hi = (float(x) for x in b[nomi.index(k)])
+            else:
+                continue          # derivato da altri parametri: si controlla punto per punto
+            if not (np.isfinite(lo) and np.isfinite(hi)):
+                illimitati.append(k)
+                continue
+            z_lo.append(lo)
+            if lo <= 0.0 or hi > self.z_max:
+                fuori.append(f"{k} in [{lo:g}, {hi:g}] (ammesso (0, z_max={self.z_max:g}])")
+        for i in range(2, n):
+            k = f"reio_flex_xHII{i}"
+            if k in costanti:
+                lo = hi = float(costanti[k])
+            elif k in nomi:
+                lo, hi = (float(x) for x in b[nomi.index(k)])
+            else:
+                continue
+            if not (np.isfinite(lo) and np.isfinite(hi)):
+                illimitati.append(k)
+            elif lo < -1e-12 or hi > 1.0 + 1e-12:
+                fuori.append(f"{k} in [{lo:g}, {hi:g}] (ammesso [0, 1])")
+        if fuori:
+            raise ValueError(
+                "ReioTheory (flexknot): prior fuori dall'intervallo ammesso: "
+                + "; ".join(fuori) + ".  I redshift dei nodi devono stare nella "
+                "griglia passata a CLASS (alza z_max se serve); reio_flex_xHII<i> e' "
+                "la frazione x_HII del nodo, in [0, 1], che il pacchetto moltiplica "
+                "per 1 + f_He del punto.")
+        if illimitati:
+            self.log.warning(
+                "flexknot: prior illimitato su %s: i punti fuori dagli intervalli "
+                "ammessi vengono scartati, il prior effettivo e' troncato li'.",
+                ", ".join(illimitati))
+        self.log.info(
+            "flexknot: %d nodi, interpolazione %s (%s del paper).  I punti con "
+            "nodi non ordinati (z1 < ... < z%d) vengono scartati: con prior "
+            "indipendenti e uguali resta 1/%d! = %.3g del volume.",
+            n, self.reio_flex_interp,
+            f"{n}-flex" if self.reio_flex_interp == "pchip" else f"{n}-knots",
+            n, n, 1.0 / math.factorial(n))
 
     def _controlla_prior_bin(self, model):
         """
@@ -1340,6 +1485,63 @@ class ReioTheory(classy):
         # vicino a z_beg quando alpha < 1.
         return self._build_grid(z_re=None, extra_nodes=pl_nodes,
                                 protect_nodes=[z_end, z_beg])
+
+    def _flexknot_grid(self, z_knots):
+        """
+        Griglia z per il modello flexknot.
+
+        I nodi del modello sono nodi PROTETTI della tabella: il primo e
+        l'ultimo sono kink (da costante a PCHIP), e con l'interpolazione
+        lineare lo sono tutti.  Con interp='linear' bastano loro: la spezzata
+        che CLASS ricostruisce coincide esattamente con il modello.  Con la
+        PCHIP ogni segmento e' una cubica e va campionato: nodi uniformi in z,
+        tanti quanti ne permette il budget del parser di CLASS (al massimo
+        max(z_points, finestra di accuratezza) per segmento).
+        """
+        zk = np.asarray(z_knots, dtype=float)
+        if self.reio_flex_interp == "linear":
+            nodi = zk
+        else:
+            n_acc = int(2 * self.z_window_widths * self.z_pts_per_width)
+            riserva = int(self.z_bg_points) + len(self._nodi_dati()) + zk.size
+            if self.reio_include_HeII:
+                riserva += n_acc
+            per_seg = (self._node_budget() - riserva) // max(zk.size - 1, 1)
+            n = max(10, min(max(int(self.z_points), n_acc), per_seg))
+            nodi = np.concatenate([np.linspace(a, b, n)
+                                   for a, b in zip(zk[:-1], zk[1:])])
+        return self._build_grid(z_re=None, extra_nodes=nodi, protect_nodes=zk)
+
+    def _flex_nodi(self, native_params, xe_max, xe_alto):
+        """
+        Estrae (e toglie da native_params) i parametri del flexknot e
+        costruisce i nodi (z_knots, xe_knots).  Restituisce None se il punto e'
+        da scartare (nodi non ordinati, troppo vicini, oltre z_max, x_HII fuori
+        da [0, 1]).  Solleva ValueError se mancano parametri.
+        """
+        nomi = [k for k in native_params if k.startswith("reio_flex_")]
+        n = self._flex_indici(nomi)
+        zk = np.array([float(native_params.pop(f"reio_flex_z{i}"))
+                       for i in range(1, n + 1)])
+        xh = np.array([float(native_params.pop(f"reio_flex_xHII{i}"))
+                       for i in range(2, n)])
+        if np.any(np.diff(zk) < self._PL_DURATA_MIN):
+            # Nodi non ordinati o quasi coincidenti: regione attesa del prior
+            # (con prior indipendenti e' la maggior parte del volume), non un
+            # errore.  Likelihood nulla, come per il power law con z_beg <= z_end.
+            self.log.debug("flexknot: nodi non ordinati, punto scartato: z = %s",
+                           np.array2string(zk, precision=3))
+            return None
+        if zk[0] <= 0.0 or zk[-1] > self.z_max:
+            self.log.debug("flexknot: nodi fuori da (0, z_max=%g]: %s", self.z_max,
+                           np.array2string(zk, precision=3))
+            return None
+        if np.any((xh < 0.0) | (xh > 1.0)):
+            self.log.debug("flexknot: x_HII dei nodi fuori da [0, 1]: %s",
+                           np.array2string(xh, precision=3))
+            return None
+        xek = np.concatenate([[xe_max], xh * xe_max, [xe_alto]])
+        return zk, xek
 
     def _binned_edges(self):
         """
@@ -2018,6 +2220,22 @@ class ReioTheory(classy):
             z_grid   = self._power_law_grid(z_end, alpha, z_beg)
             xe_class = power_law_model(z_grid, z_end=z_end, alpha=alpha,
                                        z_beg=z_beg, xe_max=xe_max)
+
+        elif self.reio_model == "flexknot":
+            # ------------------------------------------------------------------
+            # Modelli a nodi di Ilic et al. 2025 (arXiv:2504.13254) Sect. 2.4:
+            # N-flex (PCHIP, Millea & Bouchet 2018) o N-knots (lineare).
+            # Nodo 1 a x_e = 1 + f_He, nodo N al valore residuo (il pavimento
+            # del punto: cosi' la storia e' continua con il fondo e il
+            # pavimento di _finalize_xe non la tocca).
+            # ------------------------------------------------------------------
+            nodi = self._flex_nodi(native_params, xe_max, self._pavimento)
+            if nodi is None:
+                return False
+            z_knots, xe_knots = nodi
+            z_grid   = self._flexknot_grid(z_knots)
+            xe_class = flexknot_model(z_grid, z_knots, xe_knots,
+                                      interp=self.reio_flex_interp)
 
         elif self.reio_model == "binned":
             # ------------------------------------------------------------------

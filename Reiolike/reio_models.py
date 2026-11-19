@@ -854,3 +854,70 @@ def pca_model(z, z_knots, xe_knots):
     if np.any(np.diff(z_knots) <= 0):
         raise ValueError("pca_model: z_knots deve essere strettamente crescente.")
     return np.interp(np.asarray(z, dtype=float), z_knots, xe_knots)
+
+
+def flexknot_model(z, z_knots, xe_knots, interp="pchip"):
+    """
+    Storia per interpolazione fra nodi ("knots"): modelli 'N-flex' e 'N-knots'
+    di Ilic et al. 2025 (arXiv:2504.13254, Sect. 2.4 e Tab. 1); il flexknot e'
+    quello di Millea & Bouchet 2018 (A&A 617, A96).
+
+    I nodi {z_i, x_e,i} sono uniti da
+      - interp='pchip'  : Piecewise Cubic Hermite Interpolating Polynomial
+                          (scipy.interpolate.PchipInterpolator), in z.  E' C1,
+                          e fra due nodi resta compreso fra i loro due valori:
+                          con nodi monotoni la storia e' monotona, senza
+                          oscillazioni.  Modelli '2-flex', '3-flex';
+      - interp='linear' : spezzata.  Modelli '2-knots', '3-knots'.
+    Sotto il primo nodo x_e vale x_e del primo nodo, sopra l'ultimo vale x_e
+    dell'ultimo (estensione costante, come np.interp).
+
+    Nel paper il nodo piu' basso ha x_e = 1 + f_He (reionizzazione finita) e
+    quello piu' alto il valore residuo della ricombinazione; questa funzione
+    non lo impone, riceve i valori gia' fatti (li mette ReioTheory).
+
+    NB: con DUE nodi la PCHIP e' la retta fra i due, quindi 2-flex e 2-knots
+    sono lo stesso modello (Tab. 2 del paper: tau 0.0587 e 0.0586).
+
+    SCOPE: come per gli altri modelli qui, settore idrogeno + PRIMA
+    ionizzazione dell'elio; il gradino HeII -> HeIII lo aggiunge ReioTheory.
+
+    Parameters
+    ----------
+    z        : array-like — redshift
+    z_knots  : array strettamente crescente, almeno 2 elementi
+    xe_knots : array della stessa lunghezza — x_e nei nodi
+    interp   : 'pchip' o 'linear'
+
+    Returns
+    -------
+    xe : ndarray della stessa forma di z
+    """
+    zk = np.asarray(z_knots, dtype=float).ravel()
+    xk = np.asarray(xe_knots, dtype=float).ravel()
+    if zk.size != xk.size:
+        raise ValueError(f"flexknot_model: {zk.size} nodi in z ma {xk.size} valori di x_e.")
+    if zk.size < 2:
+        raise ValueError("flexknot_model: servono almeno 2 nodi.")
+    if not np.all(np.isfinite(zk)) or not np.all(np.isfinite(xk)):
+        raise ValueError("flexknot_model: nodi non finiti.")
+    if np.any(np.diff(zk) <= 0):
+        raise ValueError(f"flexknot_model: z_knots deve essere strettamente crescente, "
+                         f"ricevuto {zk}.")
+    z = np.asarray(z, dtype=float)
+    if interp == "linear":
+        return np.interp(z, zk, xk)
+    if interp == "pchip":
+        from scipy.interpolate import PchipInterpolator
+        f = PchipInterpolator(zk, xk, extrapolate=False)
+        zc = np.clip(z, zk[0], zk[-1])
+        xe = np.asarray(f(zc), dtype=float)
+        # Nei nodi la valutazione di scipy sbaglia di un arrotondamento: si
+        # rimette il valore esatto, cosi' x_HII del nodo interno e' esattamente
+        # il parametro campionato, e i plateau fuori dai nodi estremi valgono
+        # esattamente x_e del nodo.
+        i = np.searchsorted(zk, zc)
+        su_nodo = (i < zk.size) & (zk[np.minimum(i, zk.size - 1)] == zc)
+        xe[su_nodo] = xk[i[su_nodo]]
+        return xe
+    raise ValueError(f"flexknot_model: interp='{interp}' non valido, usa 'pchip' o 'linear'.")
