@@ -2556,10 +2556,46 @@ class ReioTheory(classy):
         native_params['reio_inter_z']          = str_z
         native_params['reio_inter_xe']         = str_xe
 
+        self._registra_punto_class(native_params)
         esito = super().calculate(state, want_derived, **native_params)
         if esito is not False and getattr(self, "_fondo_da_verificare", False):
             self._verifica_fondo_di_class()
         return esito
+
+    def _registra_punto_class(self, native_params):
+        """
+        Diagnosi dei segfault dentro CLASS (run Ilic, nov 2026).  Un segfault
+        uccide il processo prima che cobaya scriva il punto: nelle catene c'e'
+        solo l'ultimo punto ACCETTATO, non quello proposto che ha fatto crashare
+        CLASS.  Se la variabile d'ambiente REIO_DUMP_POINT contiene una cartella,
+        prima di ogni chiamata a CLASS si scrive li' (un file per processo MPI,
+        sovrascritto ogni volta) l'insieme ESATTO degli argomenti che CLASS
+        riceve: extra_args della run + parametri del punto + tabella x_e.
+        Dopo un crash il file del processo morto contiene il punto colpevole;
+        Tests/riprova_punto_class.py lo ricalcola da solo.  Senza la variabile
+        non fa nulla.
+        """
+        cartella = os.environ.get("REIO_DUMP_POINT")
+        if not cartella:
+            return
+        import json
+        rank = os.environ.get("SLURM_PROCID") or os.environ.get("PMI_RANK") or "0"
+        argomenti = {**dict(self.extra_args), **native_params}
+        pulito = {}
+        for k, v in argomenti.items():
+            if isinstance(v, np.generic):
+                v = v.item()
+            elif isinstance(v, np.ndarray):
+                v = v.tolist()
+            pulito[str(k)] = v
+        os.makedirs(cartella, exist_ok=True)
+        finale = os.path.join(cartella, f"punto_class_rank{rank}.json")
+        provvisorio = finale + ".tmp"
+        with open(provvisorio, "w") as fh:
+            json.dump(pulito, fh, default=str)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(provvisorio, finale)
 
     # -----------------------------------------------------------------------
     # Pavimento della tabella: fondo di ricombinazione di CLASS
