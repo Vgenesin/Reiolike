@@ -4,6 +4,7 @@ from cobaya.log import LoggedError
 import math
 import os
 import re
+import time
 
 import numpy as np
 from .reio_models import (tanh_model, tanh_class_model, class_reio_start,
@@ -2667,13 +2668,59 @@ class ReioTheory(classy):
         if chiave not in cache:
             if len(cache) >= 64:
                 cache.clear()
-            cache[chiave] = self._calcola_fondo(args)
+            valori = self._calcola_fondo(args)
+            if not self._fondo_valido(valori):
+                # Visto sul cluster (pl2pow_ilic, 21 nov 2026, LCDM libera): dopo
+                # ~10^5 punti il fondo e' uscito NaN o <= 0 e la catena si e'
+                # fermata con "pavimento non calcolato".  Si salvano gli
+                # argomenti esatti e si riprova UNA volta con un'istanza nuova:
+                # se torna buono il guaio era dell'istanza (stato corrotto), non
+                # della cosmologia, e lo si dice nel log; se resta cattivo la
+                # cosmologia stessa da' un fondo assurdo e ci si ferma.
+                file_punto = self._salva_argomenti_fondo(args, valori)
+                riprova = self._calcola_fondo(args)
+                if not self._fondo_valido(riprova):
+                    raise LoggedError(
+                        self.log, "ReioTheory: il fondo di ricombinazione di "
+                        "CLASS e' %r (atteso finito e > 0) anche ricalcolato "
+                        "con un'istanza nuova.  Argomenti di CLASS salvati in "
+                        "%s." % (riprova[0], file_punto))
+                self.log.warning(
+                    "fondo di ricombinazione di CLASS anomalo (%r), ricalcolato "
+                    "con un'istanza nuova: %.6g.  Argomenti salvati in %s.",
+                    valori[0], riprova[0], file_punto)
+                valori = riprova
+            cache[chiave] = valori
             self._fondo_da_verificare = True
         valori = cache[chiave]
         self._fondo, self._fondo_controllo = valori[0], valori[1]
         self._tabella_fondo = valori[2] if len(valori) > 2 else None
         self._pavimento = self._arrotonda_per_eccesso(
             self._MARGINE_SUL_FONDO * self._fondo)
+
+    @staticmethod
+    def _fondo_valido(valori):
+        """Il fondo (x_e a z_max) e il controllo a z_max + 1: finiti e > 0."""
+        return all(np.isfinite(v) and v > 0.0 for v in valori[:2])
+
+    def _salva_argomenti_fondo(self, args, valori):
+        """
+        Scrive gli argomenti del calcolo del fondo che ha dato un valore
+        anomalo, per ricalcolarlo da soli.  Nella cartella di REIO_DUMP_POINT
+        se c'e', altrimenti in quella corrente.  Restituisce il percorso.
+        """
+        import json
+        rank = os.environ.get("SLURM_PROCID") or os.environ.get("PMI_RANK") or "0"
+        cartella = os.environ.get("REIO_DUMP_POINT") or "."
+        os.makedirs(cartella, exist_ok=True)
+        percorso = os.path.join(
+            cartella, "fondo_anomalo_rank%s_%d.json" % (rank, int(time.time())))
+        pulito = {str(k): (v.item() if isinstance(v, np.generic) else v)
+                  for k, v in args.items()}
+        pulito["_valori_ottenuti"] = [repr(float(v)) for v in valori[:2]]
+        with open(percorso, "w") as fh:
+            json.dump(pulito, fh, default=str)
+        return percorso
 
     def _x_noreio(self, z):
         """
