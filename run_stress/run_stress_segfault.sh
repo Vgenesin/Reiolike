@@ -1,6 +1,8 @@
 #!/bin/bash
 # Test A/B sui segfault di CLASS con LCDM libera (Tests/stress_segfault_ilic.py).
-# Un nodo, 8 processi indipendenti (niente MPI) da 4 thread, per 11 ore.
+# Un nodo, 8 processi indipendenti (niente MPI) da 4 thread, per ORE ore (default 11).
+# Per partire prima in coda (backfill) si accorcia il job, per esempio
+#   sbatch -t 5:00:00 -J stress_A --export=ALL,FONDO=punto,ORE=4.5 run_stress/run_stress_segfault.sh
 # Ogni processo che muore viene rilanciato; le uscite con codice 139 sono segfault.
 # Si lancia dalla radice del repository, una volta per braccio:
 #   sbatch -J stress_A --export=ALL,FONDO=punto run_stress/run_stress_segfault.sh
@@ -27,7 +29,8 @@ CATENA=${CATENA:-chains/flexknot_3flex_ilic/flexknot_3flex_ilic_PR4}
 USCITA=run_stress/esiti/${FONDO}_${MODELLO}_job${SLURM_JOB_ID}
 export REIO_DUMP_POINT=$USCITA/punti_class
 mkdir -p $USCITA
-FINE=$(( $(date +%s) + 11*3600 ))
+# durata del ciclo in ore (default 11, per il limite di 12 h); con -t piu corto passare ORE
+FINE=$(( $(date +%s) + $(awk "BEGIN{print int(${ORE:-11}*3600)}") ))
 
 srun --cpu-bind=cores bash -c '
   while [ $(date +%s) -lt '$FINE' ]; do
