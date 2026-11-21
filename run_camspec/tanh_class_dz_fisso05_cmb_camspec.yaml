@@ -66,6 +66,10 @@ theory:
       deg_ncdm: 3
       m_ncdm: 0.02
       T_ncdm: 0.71611
+      # recfast, non HyRec (default di CLASS): sul cluster HyRec in punti rari da' NaN
+      # nella termodinamica a z < 0.7 o un segfault (21 nov 2026); recfast li calcola
+      # bene e differisce da HyRec di <= 0.2% sui Cl, 1e-8 su tau.
+      recombination: recfast
 
 likelihood:
   elica: null
