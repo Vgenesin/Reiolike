@@ -111,5 +111,10 @@ sampler:
     num_repeats: 5d       # passi di slice sampling per punto: 5d come consigliato per evidenze accurate
     precision_criterion: 0.001   # si ferma quando i punti vivi contengono < 0.1% dell'evidenza
     do_clustering: True   # cerca e segue modi separati
+    # salva il resume quando il volume dei punti vivi si riduce del 10% (~ogni 25
+    # punti morti) invece che di un fattore e (~ogni nlive): con job da <= 18 h il
+    # salvataggio di default arrivava dopo la fine del job e il lavoro andava perso
+    # (C8 e C9 ferme dal 20 nov).  Non cambia campionamento ne' evidenza.
+    compression_factor: 0.9
 
 output: chains/polychord_binned/C9/binned_C9_polychord_ELiCA_lowTT
