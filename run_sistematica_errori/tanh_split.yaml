@@ -1,0 +1,74 @@
+# Test di sistematica sulla forma degli errori asimmetrici (28 nov 2026).
+# Due run gemelle, identiche tranne ReioLike.errori_simmetrici:
+#   tanh_split.yaml       split normal (come tutte le run della tesi)
+#   tanh_simmetrici.yaml  gaussiana simmetrica con l'errore medio
+# Questa: split normal (default del pacchetto): sigma_hi sopra il dato, sigma_lo sotto.
+# Setup = run_tanh/tanh_planck_dz_libero.yaml (tanh di CLASS, Delta z libero,
+# astrofisica + ELiCA + Planck lowl.TT, cosmologia fissa Pagano et al. 2020,
+# 3 neutrini massivi, N_eff = 3.044) + recfast.
+# Atteso dal fit veloce (cosmologia fissa, solo astrofisica): Delta z 0.89 (split)
+# contro 0.78 (simmetrici), z_re quasi uguale.
+#
+# Si lancia dalla radice del repository:
+#   sbatch run_sistematica_errori/run_tanh_split.sh
+
+debug: False
+
+params:
+  reio_z_re:
+    prior: {min: 5.0, max: 12.0}
+    ref: {dist: norm, loc: 7.2, scale: 0.3}
+    proposal: 0.1
+    latex: z_\mathrm{re}
+  reio_delta_z:
+    prior: {min: 0.1, max: 3.0}
+    ref: {dist: norm, loc: 1.0, scale: 0.2}
+    proposal: 0.1
+    latex: \Delta z
+
+  A_s:
+    prior: {min: 1.5e-9, max: 3.5e-9}
+    ref: {dist: norm, loc: 2.120e-9, scale: 3.0e-11}
+    proposal: 2.0e-11
+    latex: A_s
+
+  # cosmologia fissa: Pagano et al. 2020 (arXiv:1908.09856), Tab. 3, TTTEEE+lowE-S2
+  n_s: 0.9651
+  omega_b: 0.02237
+  omega_cdm: 0.1201
+  H0: 67.32
+  N_ur: 0.00441              # 3 neutrini massivi degeneri: N_eff = 3.044
+
+  tau_reio:                  # derivato
+    latex: \tau_\mathrm{reio}
+
+theory:
+  Reiolike.ReioTheory:
+    reio_model: tanh_class
+    z_max: 30.0
+    z_points: 250
+    extra_args:
+      # 3 neutrini massivi degeneri da 0.02 eV (somma 0.06 eV)
+      N_ncdm: 1
+      deg_ncdm: 3
+      m_ncdm: 0.02
+      T_ncdm: 0.71611
+      # recfast come in tutte le run nuove (HyRec sul cluster ha dato NaN/segfault)
+      recombination: recfast
+
+likelihood:
+  Reiolike.ReioLike:
+    corecon_config_file: corecon_config.yaml
+    print_sigma_table: False
+    errori_simmetrici: False
+  elica: null
+  planck_2018_lowl.TT: null
+
+sampler:
+  mcmc:
+    Rminus1_stop: 0.01        # convergenza delle medie
+    Rminus1_cl_stop: 0.1      # convergenza degli intervalli
+    max_tries: 10000
+    learn_proposal: True
+
+output: chains/sistematica_errori/tanh_split/tanh_split_corecon_ELiCA_lowTT

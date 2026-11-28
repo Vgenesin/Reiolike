@@ -154,6 +154,19 @@ def split_normal_chi2(x_th, mu, sigma_lo, sigma_hi):
     return np.where(free, 0.0, ((x_th - mu) / safe) ** 2)
 
 
+def simmetrizza_errori(sigma_lo, sigma_hi):
+    """
+    (sigma, sigma) con sigma = (sigma_lo + sigma_hi)/2 dove entrambe le barre
+    sono > 0; altrove (lato libero al bordo fisico, NaN) le barre restano
+    quelle originali.  Usata solo dall'opzione errori_simmetrici di ReioLike.
+    """
+    lo = np.asarray(sigma_lo, dtype=float)
+    hi = np.asarray(sigma_hi, dtype=float)
+    entrambe = (lo > 0) & (hi > 0)              # False anche per NaN
+    media = 0.5 * (lo + hi)
+    return np.where(entrambe, media, lo), np.where(entrambe, media, hi)
+
+
 # ---------------------------------------------------------------------------
 # Limiti pubblicati con un errore sul limite stesso
 # ---------------------------------------------------------------------------
@@ -281,6 +294,16 @@ class ReioLike(Likelihood):
     print_sigma_table: bool = False
     debug_points: bool = False
     print_dataset_logl: bool = False
+
+    # Test di sistematica sulla forma degli errori asimmetrici (28 nov 2026).
+    # False (default): split normal, sigma_hi sopra il dato e sigma_lo sotto.
+    # True: ogni detection con entrambe le barre > 0 diventa una gaussiana
+    #   simmetrica con sigma = (sigma_lo + sigma_hi)/2.  I punti al bordo fisico
+    #   (una barra = 0, es. Umeda 2026 a x_HII = 1) restano come sono: il lato
+    #   libero non ha una larghezza da mediare.  I limiti non cambiano.
+    # Serve solo a misurare quanto la scelta della split normal sposta i
+    # parametri (soprattutto Delta z); le run della tesi usano il default.
+    errori_simmetrici: bool = False
 
     def initialize(self):
 
@@ -1873,6 +1896,8 @@ class ReioLike(Likelihood):
             corecon_err_lo = corecon_err_hi
         corecon_err_hi = np.asarray(corecon_err_hi, dtype=float)
         corecon_err_lo = np.asarray(corecon_err_lo, dtype=float)
+        if self.errori_simmetrici:
+            corecon_err_lo, corecon_err_hi = simmetrizza_errori(corecon_err_lo, corecon_err_hi)
         model_at_corecon, z_model, model_values = self._model_on_windows(
             analysis_dict, z_model, model_values, integration_width)
 
@@ -2227,6 +2252,8 @@ class ReioLike(Likelihood):
             else:
                 # Detection: split normal, come in compute_gaussian_loglike.
                 s_hi, s_lo = errors[i], errors_down[i]
+                if self.errori_simmetrici:
+                    s_lo, s_hi = (float(v) for v in simmetrizza_errori(s_lo, s_hi))
                 ok_hi = np.isfinite(s_hi) and s_hi > 0
                 ok_lo = np.isfinite(s_lo) and s_lo > 0
                 if not (ok_hi or ok_lo):
