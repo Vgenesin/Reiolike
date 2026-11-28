@@ -311,6 +311,10 @@ class ReioLike(Likelihood):
         Initializes the Corecon analyses specified in the configuration file.
         """
         print(f"CoCORITA initialized. Reading corecon config from: {self.corecon_config_file}")
+        if self.errori_simmetrici:
+            print("ERRORI SIMMETRIZZATI (errori_simmetrici: True): ogni detection con due "
+                  "barre > 0 usa una gaussiana con sigma = (sigma_lo + sigma_hi)/2, NON la "
+                  "split normal annunciata sotto per dataset.  Solo per il test di sistematica.")
 
         # Read the corecon configuration file to determine which analyses to run
         with open(self.corecon_config_file, "r") as f:
